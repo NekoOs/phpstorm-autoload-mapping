@@ -16,6 +16,7 @@ import com.intellij.ui.ToolbarDecorator;
 import com.intellij.ui.components.JBLabel;
 import com.intellij.ui.components.JBList;
 import com.intellij.util.ui.FormBuilder;
+import com.intellij.util.ui.JBUI;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -35,6 +36,7 @@ public final class LegacyAutoloadConfigurable implements SearchableConfigurable 
     private DefaultListModel<MappingState> mappingsModel;
     private JBList<MappingState> mappingsList;
     private InlineBanner officialInspectionWarning;
+    private JPanel officialInspectionWarningPanel;
     private JPanel panel;
 
     public LegacyAutoloadConfigurable(@NotNull Project project) {
@@ -83,9 +85,14 @@ public final class LegacyAutoloadConfigurable implements SearchableConfigurable 
                 this::disableOfficialInspection
         );
 
+        officialInspectionWarningPanel = new JPanel(new BorderLayout());
+        officialInspectionWarningPanel.setOpaque(false);
+        officialInspectionWarningPanel.setBorder(JBUI.Borders.emptyBottom(8));
+        officialInspectionWarningPanel.add(officialInspectionWarning, BorderLayout.CENTER);
+
         panel = new JPanel(new BorderLayout());
         panel.add(FormBuilder.createFormBuilder()
-                .addComponent(officialInspectionWarning, 0)
+                .addComponent(officialInspectionWarningPanel, 0)
                 .addComponentFillVertically(mappingsPanel, 0)
                 .addComponent(comment, 0)
                 .getPanel(), BorderLayout.CENTER);
@@ -123,6 +130,7 @@ public final class LegacyAutoloadConfigurable implements SearchableConfigurable 
         mappingsList = null;
         mappingsModel = null;
         officialInspectionWarning = null;
+        officialInspectionWarningPanel = null;
     }
 
     private void addMapping() {
@@ -156,13 +164,15 @@ public final class LegacyAutoloadConfigurable implements SearchableConfigurable 
     }
 
     private void refreshOfficialInspectionWarning() {
-        if (officialInspectionWarning == null || mappingsModel == null) {
+        if (officialInspectionWarning == null
+                || officialInspectionWarningPanel == null
+                || mappingsModel == null) {
             return;
         }
 
-        officialInspectionWarning.setVisible(
-                !mappingsModel.isEmpty() && PhpPsrInspectionCompatibility.isEnabled(project)
-        );
+        boolean visible = !mappingsModel.isEmpty() && PhpPsrInspectionCompatibility.isEnabled(project);
+        officialInspectionWarning.setVisible(visible);
+        officialInspectionWarningPanel.setVisible(visible);
     }
 
     private void disableOfficialInspection() {
