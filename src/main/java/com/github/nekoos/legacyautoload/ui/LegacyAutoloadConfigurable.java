@@ -64,14 +64,8 @@ public final class LegacyAutoloadConfigurable implements SearchableConfigurable 
 
         panel = new JPanel(new BorderLayout());
         panel.add(FormBuilder.createFormBuilder()
-                .addLabeledComponent(
-                        LegacyAutoloadBundle.message("settings.mappings.label"),
-                        mappingsPanel,
-                        1,
-                        false
-                )
-                .addComponentToRightColumn(comment, 0)
-                .addComponentFillVertically(new JPanel(), 0)
+                .addComponentFillVertically(mappingsPanel, 0)
+                .addComponent(comment, 0)
                 .getPanel(), BorderLayout.CENTER);
         reset();
         return panel;
@@ -159,4 +153,3 @@ public final class LegacyAutoloadConfigurable implements SearchableConfigurable 
         }
     }
 }
-
