@@ -107,6 +107,21 @@ tests/unit
 
 Create one mapping per source root.
 
+## Installation
+
+### JetBrains Marketplace
+
+Once the plugin is available on JetBrains Marketplace, open
+**Settings | Plugins | Marketplace**, search for **Legacy Autoload Mapping**, install it, and restart
+PhpStorm if requested.
+
+### GitHub release
+
+Download the plugin ZIP from the latest
+[GitHub release](https://github.com/NekoOs/phpstorm-legacy-autoload/releases/latest). In PhpStorm,
+open **Settings | Plugins**, choose **Install Plugin from Disk...** from the gear menu, select the ZIP,
+and restart the IDE if requested. Do not extract the archive.
+
 ## Inspection and quick fixes
 
 The **Legacy autoload class/file mismatch** inspection validates top-level global PHP classes covered
