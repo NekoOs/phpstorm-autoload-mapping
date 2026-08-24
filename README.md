@@ -124,9 +124,12 @@ infrastructure. It provides:
 Configure it under
 **Settings | Editor | Inspections | PHP | Legacy autoload class/file mismatch**.
 
-The plugin does not suppress or replace PhpStorm's official PSR-0/PSR-4 inspection. The official
-inspection and this legacy mapping inspection have different configuration sources and can both be
-enabled.
+The plugin does not silently suppress or replace PhpStorm's official PSR-0/PSR-4 inspection. When
+legacy mappings are configured and the official inspection remains enabled, the settings page shows
+a warning with an action that opens the official inspection directly. If the project uses a
+project-level inspection profile, the warning also offers an explicit, confirmed action to disable
+the official inspection for that project. This is optional because the same project may still
+contain normal PSR-4 code that benefits from PhpStorm's inspection.
 
 ## Architecture
 
@@ -176,4 +179,3 @@ The plugin targets PhpStorm 2026.1 (IntelliJ build 261) and newer, uses the publ
 
 It does not modify Composer configuration, convert legacy classes to namespaces, or globally
 suppress PhpStorm inspections.
-

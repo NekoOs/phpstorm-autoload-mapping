@@ -1,12 +1,16 @@
 package com.github.nekoos.legacyautoload.ui;
 
 import com.github.nekoos.legacyautoload.LegacyAutoloadBundle;
+import com.github.nekoos.legacyautoload.inspection.PhpPsrInspectionCompatibility;
 import com.github.nekoos.legacyautoload.mapping.LegacyAutoloadPresets;
 import com.github.nekoos.legacyautoload.settings.LegacyAutoloadProjectSettings;
 import com.github.nekoos.legacyautoload.settings.LegacyAutoloadProjectSettings.MappingState;
 import com.intellij.openapi.options.SearchableConfigurable;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.ui.Messages;
 import com.intellij.ui.ColoredListCellRenderer;
+import com.intellij.ui.EditorNotificationPanel;
+import com.intellij.ui.InlineBanner;
 import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.ui.ToolbarDecorator;
 import com.intellij.ui.components.JBLabel;
@@ -30,6 +34,7 @@ public final class LegacyAutoloadConfigurable implements SearchableConfigurable 
     private final Project project;
     private DefaultListModel<MappingState> mappingsModel;
     private JBList<MappingState> mappingsList;
+    private InlineBanner officialInspectionWarning;
     private JPanel panel;
 
     public LegacyAutoloadConfigurable(@NotNull Project project) {
@@ -62,8 +67,25 @@ public final class LegacyAutoloadConfigurable implements SearchableConfigurable 
         JBLabel comment = new JBLabel(LegacyAutoloadBundle.message("settings.mappings.comment"));
         comment.setCopyable(true);
 
+        officialInspectionWarning = new InlineBanner(
+                LegacyAutoloadBundle.message("settings.officialInspection.warning"),
+                EditorNotificationPanel.Status.Warning
+        );
+        officialInspectionWarning.addAction(
+                LegacyAutoloadBundle.message("settings.officialInspection.review"),
+                () -> {
+                    PhpPsrInspectionCompatibility.openSettings(project);
+                    refreshOfficialInspectionWarning();
+                }
+        );
+        officialInspectionWarning.addAction(
+                LegacyAutoloadBundle.message("settings.officialInspection.disable"),
+                this::disableOfficialInspection
+        );
+
         panel = new JPanel(new BorderLayout());
         panel.add(FormBuilder.createFormBuilder()
+                .addComponent(officialInspectionWarning, 0)
                 .addComponentFillVertically(mappingsPanel, 0)
                 .addComponent(comment, 0)
                 .getPanel(), BorderLayout.CENTER);
@@ -82,6 +104,7 @@ public final class LegacyAutoloadConfigurable implements SearchableConfigurable 
         if (mappingsModel != null) {
             LegacyAutoloadProjectSettings.getInstance(project).setMappingStates(modelValues());
         }
+        refreshOfficialInspectionWarning();
     }
 
     @Override
@@ -91,6 +114,7 @@ public final class LegacyAutoloadConfigurable implements SearchableConfigurable 
         }
         mappingsModel.clear();
         LegacyAutoloadProjectSettings.getInstance(project).getMappingStates().forEach(mappingsModel::addElement);
+        refreshOfficialInspectionWarning();
     }
 
     @Override
@@ -98,6 +122,7 @@ public final class LegacyAutoloadConfigurable implements SearchableConfigurable 
         panel = null;
         mappingsList = null;
         mappingsModel = null;
+        officialInspectionWarning = null;
     }
 
     private void addMapping() {
@@ -106,6 +131,7 @@ public final class LegacyAutoloadConfigurable implements SearchableConfigurable 
         if (dialog.showAndGet()) {
             mappingsModel.addElement(dialog.getMappingState());
             mappingsList.setSelectedIndex(mappingsModel.size() - 1);
+            refreshOfficialInspectionWarning();
         }
     }
 
@@ -125,6 +151,41 @@ public final class LegacyAutoloadConfigurable implements SearchableConfigurable 
         int[] selectedIndices = mappingsList.getSelectedIndices();
         for (int index = selectedIndices.length - 1; index >= 0; index--) {
             mappingsModel.remove(selectedIndices[index]);
+        }
+        refreshOfficialInspectionWarning();
+    }
+
+    private void refreshOfficialInspectionWarning() {
+        if (officialInspectionWarning == null || mappingsModel == null) {
+            return;
+        }
+
+        officialInspectionWarning.setVisible(
+                !mappingsModel.isEmpty() && PhpPsrInspectionCompatibility.isEnabled(project)
+        );
+    }
+
+    private void disableOfficialInspection() {
+        if (!PhpPsrInspectionCompatibility.canDisableForProject(project)) {
+            Messages.showInfoMessage(
+                    project,
+                    LegacyAutoloadBundle.message("settings.officialInspection.projectProfileRequired"),
+                    LegacyAutoloadBundle.message("settings.officialInspection.projectProfileRequiredTitle")
+            );
+            PhpPsrInspectionCompatibility.openSettings(project);
+            refreshOfficialInspectionWarning();
+            return;
+        }
+
+        int answer = Messages.showYesNoDialog(
+                project,
+                LegacyAutoloadBundle.message("settings.officialInspection.confirm"),
+                LegacyAutoloadBundle.message("settings.officialInspection.confirmTitle"),
+                Messages.getWarningIcon()
+        );
+        if (answer == Messages.YES) {
+            PhpPsrInspectionCompatibility.disableForProject(project);
+            refreshOfficialInspectionWarning();
         }
     }
 
