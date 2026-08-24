@@ -68,6 +68,10 @@ public final class LegacyAutoloadConfigurable implements SearchableConfigurable 
 
         JBLabel comment = new JBLabel(LegacyAutoloadBundle.message("settings.mappings.comment"));
         comment.setCopyable(true);
+        JPanel commentPanel = new JPanel(new BorderLayout());
+        commentPanel.setOpaque(false);
+        commentPanel.setBorder(JBUI.Borders.emptyTop(8));
+        commentPanel.add(comment, BorderLayout.CENTER);
 
         officialInspectionWarning = new InlineBanner(
                 LegacyAutoloadBundle.message("settings.officialInspection.warning"),
@@ -94,7 +98,7 @@ public final class LegacyAutoloadConfigurable implements SearchableConfigurable 
         panel.add(FormBuilder.createFormBuilder()
                 .addComponent(officialInspectionWarningPanel, 0)
                 .addComponentFillVertically(mappingsPanel, 0)
-                .addComponent(comment, 0)
+                .addComponent(commentPanel, 0)
                 .getPanel(), BorderLayout.CENTER);
         reset();
         return panel;
