@@ -1,0 +1,32 @@
+<idea-plugin>
+    <id>com.github.nekoos.legacyautoload</id>
+    <name>Legacy Autoload Mapping</name>
+    <vendor>NekoOS</vendor>
+
+    <description><![CDATA[
+        Teaches PhpStorm deterministic legacy class-to-file autoload mappings, including PSR-0,
+        suffix-based filenames, case transformations, and fixed filename prefixes or suffixes.
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.jetbrains.php</depends>
+
+    <resource-bundle>messages.LegacyAutoloadBundle</resource-bundle>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <projectConfigurable
+                id="com.github.nekoos.legacyautoload.settings"
+                displayName="Legacy Autoload Mapping"
+                parentId="language"
+                instance="com.github.nekoos.legacyautoload.ui.LegacyAutoloadConfigurable"/>
+
+        <localInspection
+                language="PHP"
+                shortName="LegacyAutoloadPathMismatch"
+                displayName="Legacy autoload class/file mismatch"
+                groupName="PHP"
+                enabledByDefault="true"
+                level="WARNING"
+                implementationClass="com.github.nekoos.legacyautoload.inspection.LegacyAutoloadPathMismatchInspection"/>
+    </extensions>
+</idea-plugin>
