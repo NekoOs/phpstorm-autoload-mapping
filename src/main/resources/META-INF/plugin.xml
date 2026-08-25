@@ -6,19 +6,26 @@
     <description><![CDATA[
         <p><strong>Legacy Autoload Mapping</strong> teaches PhpStorm to validate PHP classes that use
         deterministic legacy class-to-file conventions the IDE does not understand natively.</p>
-        <p>Configure project source roots and declarative class/file patterns for conventions such as
-        PSR-0 and PEAR underscore paths, Zend Framework 1, Doctrine 1, class suffixes, filename
-        prefixes, and reusable case transformations.</p>
-        <p>The plugin works with global PHP classes, requires neither namespaces nor Composer autoload
-        configuration, and provides refactoring-based quick fixes for mismatches.</p>
+        <p>Choose a documented convention or application schema for ZF1, Laravel 3, CodeIgniter 2,
+        or PEAR/PSR-0; alternatively configure controlled declarative patterns
+        with fixed literals, typed formats, independent alternatives, and explicit fallback chains.</p>
+        <p>The plugin works only with existing declarations in files PhpStorm recognizes as PHP.
+        Global rules remain global; namespace mapping participates only when explicitly declared.</p>
     ]]></description>
 
     <change-notes><![CDATA[
-        <h3>0.2.1</h3>
+        <h3>0.3.0</h3>
         <ul>
-            <li>Warn when PhpStorm's built-in PSR-0/PSR-4 inspection may conflict with legacy mappings.</li>
-            <li>Open the official inspection directly or disable it safely in a project inspection profile.</li>
-            <li>Improve spacing and alignment in the project settings UI.</li>
+            <li>Add structured canonical values, case formats, explicit separators, and controlled restrictions.</li>
+            <li>Expose pair validation and both derivation directions independently.</li>
+            <li>Evaluate all top-level candidates per recognized PHP file without selecting a class arbitrarily.</li>
+            <li>Add flat, explicitly ordered fallback chains and named alternative quick fixes.</li>
+            <li>Use a project-relative Base directory for every rule, without changing PhpStorm source folders.</li>
+            <li>Choose between the Project scheme and reusable Default/custom IDE schemes from a PhpStorm-style header.</li>
+            <li>Copy mappings explicitly between Project and IDE storage; rename or delete only custom IDE schemes.</li>
+            <li>Duplicate and share complete schemes through validated, versioned XML import/export.</li>
+            <li>Apply built-in rule packs from a visible Add from menu as batches of editable rules.</li>
+            <li>Cache compiled project mappings and validate class-to-file mappings without custom indexes.</li>
         </ul>
     ]]></change-notes>
 
