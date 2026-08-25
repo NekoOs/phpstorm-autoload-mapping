@@ -1,59 +1,65 @@
 package com.github.nekoos.legacyautoload.ui;
 
 import com.github.nekoos.legacyautoload.LegacyAutoloadBundle;
-import com.github.nekoos.legacyautoload.mapping.LegacyAutoloadPreset;
-import com.github.nekoos.legacyautoload.mapping.LegacyAutoloadPresets;
-import com.github.nekoos.legacyautoload.mapping.SourceRoot;
+import com.github.nekoos.legacyautoload.mapping.AmbiguousQuickFixPolicy;
+import com.github.nekoos.legacyautoload.mapping.BaseDirectory;
 import com.github.nekoos.legacyautoload.settings.LegacyAutoloadProjectSettings.MappingState;
 import com.intellij.openapi.fileChooser.FileChooser;
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectUtil;
-import com.intellij.openapi.ui.ComboBox;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.ValidationInfo;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.ui.DocumentAdapter;
+import com.intellij.ui.components.JBCheckBox;
+import com.intellij.ui.components.JBLabel;
 import com.intellij.ui.components.JBTextField;
 import com.intellij.util.ui.FormBuilder;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import javax.swing.event.DocumentEvent;
 import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JPanel;
 import java.awt.BorderLayout;
 
 final class LegacyAutoloadMappingDialog extends DialogWrapper {
-    private static final String CUSTOM_PRESET = "Custom";
-
     private final Project project;
-    private final ComboBox<String> preset = new ComboBox<>();
+    private final MappingState initialState;
     private final JBTextField name = new JBTextField();
-    private final JBTextField sourceRoot = new JBTextField();
+    private final JBTextField baseDirectory = new JBTextField();
     private final JBTextField classPattern = new JBTextField();
     private final JBTextField filePattern = new JBTextField();
-    private String selectedPresetId;
+    private final JBCheckBox offerAmbiguousQuickFixes = new JBCheckBox(
+            LegacyAutoloadBundle.message("mapping.ambiguousQuickFixes")
+    );
+    private final JBLabel capability = new JBLabel();
 
     LegacyAutoloadMappingDialog(@NotNull Project project, @NotNull MappingState initialState) {
         super(project);
         this.project = project;
-        selectedPresetId = initialState.presetId;
-
-        preset.addItem(CUSTOM_PRESET);
-        LegacyAutoloadPresets.all().forEach(value -> preset.addItem(value.displayName()));
-        LegacyAutoloadPresets.find(initialState.presetId)
-                .ifPresentOrElse(
-                        value -> preset.setSelectedItem(value.displayName()),
-                        () -> preset.setSelectedItem(CUSTOM_PRESET)
-                );
+        this.initialState = initialState.copy();
 
         name.setText(initialState.name);
-        sourceRoot.setText(initialState.sourceRoot);
+        baseDirectory.setText(initialState.baseDirectory);
         classPattern.setText(initialState.classPattern);
         filePattern.setText(initialState.filePattern);
+        offerAmbiguousQuickFixes.setSelected(
+                AmbiguousQuickFixPolicy.OFFER_NAMED_ALTERNATIVES.name().equals(initialState.quickFixPolicy)
+        );
+        DocumentAdapter capabilityUpdater = new DocumentAdapter() {
+            @Override
+            protected void textChanged(@NotNull DocumentEvent event) {
+                refreshCapability();
+            }
+        };
+        classPattern.getDocument().addDocumentListener(capabilityUpdater);
+        filePattern.getDocument().addDocumentListener(capabilityUpdater);
+        refreshCapability();
 
-        preset.addActionListener(event -> applySelectedPreset());
         setTitle(LegacyAutoloadBundle.message("mapping.dialog.title"));
         init();
     }
@@ -61,39 +67,43 @@ final class LegacyAutoloadMappingDialog extends DialogWrapper {
     @Override
     protected @Nullable JComponent createCenterPanel() {
         JButton chooseRoot = new JButton(LegacyAutoloadBundle.message("mapping.chooseRoot"));
-        chooseRoot.addActionListener(event -> chooseSourceRoot());
+        chooseRoot.addActionListener(event -> chooseBaseDirectory());
         JPanel rootPanel = new JPanel(new BorderLayout(8, 0));
-        rootPanel.add(sourceRoot, BorderLayout.CENTER);
+        rootPanel.add(baseDirectory, BorderLayout.CENTER);
         rootPanel.add(chooseRoot, BorderLayout.EAST);
+        JBLabel baseDirectoryHelp = new JBLabel(
+                "<html><small>" + LegacyAutoloadBundle.message("mapping.baseDirectory.help") + "</small></html>"
+        );
 
         JPanel form = FormBuilder.createFormBuilder()
-                .addLabeledComponent(LegacyAutoloadBundle.message("mapping.preset"), preset)
                 .addLabeledComponent(LegacyAutoloadBundle.message("mapping.name"), name)
-                .addLabeledComponent(LegacyAutoloadBundle.message("mapping.sourceRoot"), rootPanel)
+                .addLabeledComponent(LegacyAutoloadBundle.message("mapping.baseDirectory"), rootPanel)
+                .addComponentToRightColumn(baseDirectoryHelp)
                 .addLabeledComponent(LegacyAutoloadBundle.message("mapping.classPattern"), classPattern)
                 .addLabeledComponent(LegacyAutoloadBundle.message("mapping.filePattern"), filePattern)
+                .addLabeledComponent(LegacyAutoloadBundle.message("mapping.capability"), capability)
+                .addComponent(offerAmbiguousQuickFixes)
                 .addComponentFillVertically(new JPanel(), 0)
                 .getPanel();
-        form.setPreferredSize(new java.awt.Dimension(640, 260));
+        form.setPreferredSize(new java.awt.Dimension(640, 220));
         return form;
     }
 
     @Override
     protected @Nullable ValidationInfo doValidate() {
         try {
+            VirtualFile projectDirectory = ProjectUtil.guessProjectDir(project);
             MappingState state = getMappingState();
             state.toMapping();
-
-            VirtualFile projectDirectory = ProjectUtil.guessProjectDir(project);
             VirtualFile root = projectDirectory == null
                     ? null
-                    : state.sourceRoot.isEmpty()
+                    : state.baseDirectory.isEmpty()
                     ? projectDirectory
-                    : projectDirectory.findFileByRelativePath(state.sourceRoot);
+                    : projectDirectory.findFileByRelativePath(state.baseDirectory);
             if (root == null || !root.isDirectory()) {
                 return new ValidationInfo(
                         LegacyAutoloadBundle.message("mapping.invalidRoot"),
-                        sourceRoot
+                        baseDirectory
                 );
             }
         } catch (IllegalArgumentException exception) {
@@ -106,38 +116,39 @@ final class LegacyAutoloadMappingDialog extends DialogWrapper {
 
     @NotNull MappingState getMappingState() {
         return new MappingState(
+                initialState.ruleId,
                 name.getText(),
-                SourceRoot.normalize(sourceRoot.getText()),
+                BaseDirectory.normalize(baseDirectory.getText()),
                 classPattern.getText(),
                 filePattern.getText(),
-                selectedPresetId
+                initialState.fallbackChainId,
+                initialState.fallbackOrder,
+                offerAmbiguousQuickFixes.isSelected()
+                        ? AmbiguousQuickFixPolicy.OFFER_NAMED_ALTERNATIVES.name()
+                        : AmbiguousQuickFixPolicy.SAFE_ONLY.name()
         );
     }
 
-    private void applySelectedPreset() {
-        String selectedName = (String) preset.getSelectedItem();
-        LegacyAutoloadPreset selected = LegacyAutoloadPresets.all().stream()
-                .filter(value -> value.displayName().equals(selectedName))
-                .findFirst()
-                .orElse(null);
-        if (selected == null) {
-            selectedPresetId = "";
-            return;
+    private void refreshCapability() {
+        try {
+            var capabilities = getMappingState().toMapping().capabilities();
+            String notices = capabilities.notices().isEmpty()
+                    ? ""
+                    : "<br><small>" + String.join("<br>", capabilities.notices()) + "</small>";
+            capability.setText("<html>" + capabilities.label() + notices + "</html>");
+        } catch (IllegalArgumentException exception) {
+            capability.setText(LegacyAutoloadBundle.message("mapping.capability.invalid"));
         }
-        selectedPresetId = selected.id();
-        name.setText(selected.displayName());
-        classPattern.setText(selected.classPattern());
-        filePattern.setText(selected.filePattern());
     }
 
-    private void chooseSourceRoot() {
+    private void chooseBaseDirectory() {
         VirtualFile projectDirectory = ProjectUtil.guessProjectDir(project);
         if (projectDirectory == null) {
             return;
         }
-        VirtualFile initial = sourceRoot.getText().isBlank()
+        VirtualFile initial = baseDirectory.getText().isBlank()
                 ? projectDirectory
-                : projectDirectory.findFileByRelativePath(sourceRoot.getText());
+                : projectDirectory.findFileByRelativePath(baseDirectory.getText());
         VirtualFile selected = FileChooser.chooseFile(
                 FileChooserDescriptorFactory.createSingleFolderDescriptor()
                         .withTitle(LegacyAutoloadBundle.message("mapping.chooser.title")),
@@ -149,7 +160,7 @@ final class LegacyAutoloadMappingDialog extends DialogWrapper {
         }
         String relativePath = VfsUtilCore.getRelativePath(selected, projectDirectory, '/');
         if (relativePath != null) {
-            sourceRoot.setText(relativePath);
+            baseDirectory.setText(relativePath);
         }
     }
 }
