@@ -1,4 +1,5 @@
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
+import org.jetbrains.intellij.platform.gradle.tasks.BuildSearchableOptionsTask
 import org.jetbrains.intellij.platform.gradle.tasks.PrepareSandboxTask
 
 plugins {
@@ -36,6 +37,7 @@ tasks {
     withType<JavaCompile>().configureEach {
         options.encoding = "UTF-8"
         options.release = 21
+        options.compilerArgs.add("-Xlint:deprecation")
     }
 
     test {
@@ -45,6 +47,13 @@ tasks {
     named<PrepareSandboxTask>("prepareTestSandbox") {
         // Vue's LSP is unrelated to PHP PSI tests and expects a full installed-product layout.
         disabledPlugins.add("org.jetbrains.plugins.vue")
+    }
+
+    named<BuildSearchableOptionsTask>("buildSearchableOptions") {
+        // Keep headless option indexing independent from a development IDE left open by runIde.
+        sandboxConfigDirectory.set(layout.buildDirectory.dir("searchableOptions-sandbox/config"))
+        sandboxSystemDirectory.set(layout.buildDirectory.dir("searchableOptions-sandbox/system"))
+        sandboxLogDirectory.set(layout.buildDirectory.dir("searchableOptions-sandbox/log"))
     }
 }
 
