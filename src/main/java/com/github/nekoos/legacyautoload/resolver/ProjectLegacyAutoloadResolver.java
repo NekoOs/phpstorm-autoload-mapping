@@ -10,9 +10,12 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
+/** Resolves project-relative base directories and evaluates every applicable flat rule. */
 public final class ProjectLegacyAutoloadResolver {
     private final LegacyAutoloadResolver mappingResolver;
 
@@ -24,7 +27,47 @@ public final class ProjectLegacyAutoloadResolver {
         this.mappingResolver = mappingResolver;
     }
 
-    public @NotNull List<FileResolution> resolveFile(
+    public @NotNull FileEvaluation evaluateFile(
+            @NotNull Project project,
+            @NotNull VirtualFile file,
+            @NotNull List<Declaration> declarations,
+            @NotNull List<LegacyAutoloadMapping> mappings
+    ) {
+        List<ApplicableRule> rules = applicableRules(project, file, mappings);
+        if (rules.isEmpty() || declarations.isEmpty()) {
+            return FileEvaluation.empty();
+        }
+        List<DeclarationCandidate> candidates = new ArrayList<>();
+        for (ApplicableRule rule : rules) {
+            if (!rule.mapping().capabilities().validateExistingPair()) {
+                continue;
+            }
+            for (Declaration declaration : declarations) {
+                if (declaration.namespaced() != rule.mapping().classPattern().supportsNamespaces()
+                        || !mappingResolver.matchesClassPattern(rule.mapping(), declaration.qualifiedName())) {
+                    continue;
+                }
+                Optional<String> expectedClass = mappingResolver.resolveClass(
+                        rule.mapping(), rule.relativeFilePath());
+                Optional<String> expectedFile = mappingResolver.resolveFile(
+                        rule.mapping(), declaration.qualifiedName());
+                candidates.add(new DeclarationCandidate(
+                        declaration,
+                        rule.mapping(),
+                        rule.root(),
+                        rule.relativeFilePath(),
+                        expectedClass,
+                        expectedFile,
+                        mappingResolver.validatesPair(
+                                rule.mapping(), declaration.qualifiedName(), rule.relativeFilePath()),
+                        rule.mappingIndex()
+                ));
+            }
+        }
+        return new FileEvaluation(candidates);
+    }
+
+    private @NotNull List<ApplicableRule> applicableRules(
             @NotNull Project project,
             @NotNull VirtualFile file,
             @NotNull List<LegacyAutoloadMapping> mappings
@@ -33,8 +76,7 @@ public final class ProjectLegacyAutoloadResolver {
         if (projectDirectory == null || file.isDirectory()) {
             return List.of();
         }
-
-        List<FileResolution> resolutions = new ArrayList<>();
+        List<ApplicableRule> rules = new ArrayList<>();
         for (int index = 0; index < mappings.size(); index++) {
             LegacyAutoloadMapping mapping = mappings.get(index);
             VirtualFile root = findRoot(projectDirectory, mapping);
@@ -42,118 +84,111 @@ public final class ProjectLegacyAutoloadResolver {
                 continue;
             }
             String relativePath = VfsUtilCore.getRelativePath(file, root, '/');
-            if (relativePath == null) {
-                continue;
+            if (relativePath != null) {
+                rules.add(new ApplicableRule(mapping, root, relativePath, index));
             }
-            int mappingIndex = index;
-            mappingResolver.resolveClass(mapping, relativePath)
-                    .map(className -> new FileResolution(
-                            mapping,
-                            root,
-                            relativePath,
-                            className,
-                            mappingIndex
-                    ))
-                    .ifPresent(resolutions::add);
         }
-
-        return resolutions.stream()
-                .sorted(Comparator
-                        .comparingInt((FileResolution resolution) -> resolution.root().getPath().length())
-                        .reversed()
-                        .thenComparingInt(FileResolution::mappingIndex))
-                .toList();
+        return rules.stream().sorted(Comparator
+                .comparingInt((ApplicableRule rule) -> rule.root().getPath().length()).reversed()
+                .thenComparing(rule -> rule.mapping().fallbackChainId())
+                .thenComparingInt(rule -> rule.mapping().fallbackOrder())
+                .thenComparingInt(ApplicableRule::mappingIndex)).toList();
     }
 
-    public @NotNull List<ClassResolution> resolveClass(
-            @NotNull Project project,
-            @NotNull String globalClassName,
-            @NotNull List<LegacyAutoloadMapping> mappings
+    public @NotNull Optional<MoveTarget> findMoveTarget(
+            @NotNull DeclarationCandidate candidate,
+            @NotNull VirtualFile currentFile
     ) {
-        VirtualFile projectDirectory = ProjectUtil.guessProjectDir(project);
-        if (projectDirectory == null) {
-            return List.of();
-        }
-
-        List<ClassResolution> resolutions = new ArrayList<>();
-        for (LegacyAutoloadMapping mapping : mappings) {
-            VirtualFile root = findRoot(projectDirectory, mapping);
-            if (root == null) {
-                continue;
-            }
-            mappingResolver.resolveFile(mapping, globalClassName)
-                    .map(relativePath -> new ClassResolution(
-                            mapping,
-                            root,
-                            relativePath,
-                            root.findFileByRelativePath(relativePath)
-                    ))
-                    .ifPresent(resolutions::add);
-        }
-        return List.copyOf(resolutions);
+        return candidate.expectedRelativeFilePath().flatMap(expectedPath ->
+                findMoveTarget(candidate.root(), expectedPath, currentFile));
     }
 
-    public @NotNull Optional<VirtualFile> findMoveTargetDirectory(
-            @NotNull FileResolution currentResolution,
-            @NotNull VirtualFile currentFile,
-            @NotNull String actualClassName
-    ) {
-        return mappingResolver.resolveFile(currentResolution.mapping(), actualClassName)
-                .flatMap(relativePath -> findExistingTargetDirectory(
-                        currentResolution.root(),
-                        currentFile,
-                        relativePath
-                ));
-    }
-
-    private @NotNull Optional<VirtualFile> findExistingTargetDirectory(
+    private @NotNull Optional<MoveTarget> findMoveTarget(
             @NotNull VirtualFile root,
-            @NotNull VirtualFile currentFile,
-            @NotNull String targetRelativePath
+            @NotNull String targetRelativePath,
+            @NotNull VirtualFile currentFile
     ) {
         int slash = targetRelativePath.lastIndexOf('/');
         String targetFileName = slash < 0 ? targetRelativePath : targetRelativePath.substring(slash + 1);
-        if (!targetFileName.equals(currentFile.getName())) {
-            return Optional.empty();
-        }
-
         String targetDirectoryPath = slash < 0 ? "" : targetRelativePath.substring(0, slash);
         VirtualFile targetDirectory = targetDirectoryPath.isEmpty()
-                ? root
-                : root.findFileByRelativePath(targetDirectoryPath);
-        if (targetDirectory == null
-                || !targetDirectory.isDirectory()
-                || targetDirectory.equals(currentFile.getParent())
-                || targetDirectory.findChild(currentFile.getName()) != null) {
+                ? root : root.findFileByRelativePath(targetDirectoryPath);
+        if (targetDirectory == null || !targetDirectory.isDirectory()) {
             return Optional.empty();
         }
-        return Optional.of(targetDirectory);
+        VirtualFile conflict = targetDirectory.findChild(targetFileName);
+        if (conflict != null && !conflict.equals(currentFile)) {
+            return Optional.empty();
+        }
+        if (targetDirectory.equals(currentFile.getParent()) && targetFileName.equals(currentFile.getName())) {
+            return Optional.empty();
+        }
+        return Optional.of(new MoveTarget(targetDirectory, targetFileName));
     }
 
     private VirtualFile findRoot(
             @NotNull VirtualFile projectDirectory,
             @NotNull LegacyAutoloadMapping mapping
     ) {
-        String path = mapping.sourceRoot().projectRelativePath();
+        String path = mapping.baseDirectory().projectRelativePath();
         VirtualFile root = path.isEmpty() ? projectDirectory : projectDirectory.findFileByRelativePath(path);
         return root != null && root.isDirectory() ? root : null;
     }
 
-    public record FileResolution(
+    public record Declaration(
+            @NotNull String qualifiedName,
+            @NotNull String simpleName,
+            boolean namespaced
+    ) {
+        public Declaration {
+            if (qualifiedName.startsWith("\\")) {
+                qualifiedName = qualifiedName.substring(1);
+            }
+        }
+    }
+
+    public record DeclarationCandidate(
+            @NotNull Declaration declaration,
             @NotNull LegacyAutoloadMapping mapping,
             @NotNull VirtualFile root,
-            @NotNull String relativeFilePath,
-            @NotNull String expectedClassName,
+            @NotNull String currentRelativeFilePath,
+            @NotNull Optional<String> expectedQualifiedClassName,
+            @NotNull Optional<String> expectedRelativeFilePath,
+            boolean exactMatch,
             int mappingIndex
     ) {
     }
 
-    public record ClassResolution(
+    public record FileEvaluation(@NotNull List<DeclarationCandidate> candidates) {
+        public FileEvaluation {
+            candidates = List.copyOf(candidates);
+        }
+
+        public static @NotNull FileEvaluation empty() {
+            return new FileEvaluation(List.of());
+        }
+
+        public boolean hasExactMatch() {
+            return candidates.stream().anyMatch(DeclarationCandidate::exactMatch);
+        }
+
+        public @NotNull Set<Declaration> candidateDeclarations() {
+            Set<Declaration> result = new LinkedHashSet<>();
+            candidates.forEach(candidate -> result.add(candidate.declaration()));
+            return java.util.Collections.unmodifiableSet(result);
+        }
+
+        public @NotNull List<DeclarationCandidate> mismatches() {
+            return candidates.stream().filter(candidate -> !candidate.exactMatch()).toList();
+        }
+    }
+
+    public record MoveTarget(@NotNull VirtualFile directory, @NotNull String fileName) {}
+
+    private record ApplicableRule(
             @NotNull LegacyAutoloadMapping mapping,
             @NotNull VirtualFile root,
             @NotNull String relativeFilePath,
-            VirtualFile file
-    ) {
-    }
+            int mappingIndex
+    ) {}
 }
-

@@ -16,14 +16,33 @@ import org.jetbrains.annotations.NotNull;
 
 public final class MoveFileToMappedPathQuickFix implements LocalQuickFix {
     private final String targetDirectoryUrl;
+    private final String targetFileName;
+    private final String mappingName;
 
     public MoveFileToMappedPathQuickFix(@NotNull String targetDirectoryUrl) {
+        this(targetDirectoryUrl, "", "");
+    }
+
+    public MoveFileToMappedPathQuickFix(
+            @NotNull String targetDirectoryUrl,
+            @NotNull String targetFileName,
+            @NotNull String mappingName
+    ) {
         this.targetDirectoryUrl = targetDirectoryUrl;
+        this.targetFileName = targetFileName;
+        this.mappingName = mappingName;
     }
 
     @Override
     public @NotNull @Nls String getFamilyName() {
         return LegacyAutoloadBundle.message("quickfix.move");
+    }
+
+    @Override
+    public @NotNull @Nls String getName() {
+        return mappingName.isEmpty()
+                ? getFamilyName()
+                : LegacyAutoloadBundle.message("quickfix.move.named", mappingName);
     }
 
     @Override
@@ -40,7 +59,15 @@ public final class MoveFileToMappedPathQuickFix implements LocalQuickFix {
         }
 
         PsiDirectory targetDirectory = PsiManager.getInstance(project).findDirectory(targetVirtualDirectory);
-        if (targetDirectory == null || targetDirectory.findFile(file.getName()) != null) {
+        String originalFileName = file.getName();
+        String desiredFileName = targetFileName.isEmpty() ? originalFileName : targetFileName;
+        PsiFile existingTarget = targetDirectory == null ? null : targetDirectory.findFile(desiredFileName);
+        if (targetDirectory == null || (existingTarget != null && !existingTarget.equals(file))) {
+            return;
+        }
+
+        if (targetDirectory.equals(file.getContainingDirectory())) {
+            renameFile(project, file, desiredFileName);
             return;
         }
 
@@ -50,9 +77,25 @@ public final class MoveFileToMappedPathQuickFix implements LocalQuickFix {
                 targetDirectory,
                 false,
                 false,
-                null,
+                () -> {
+                    PsiFile movedFile = targetDirectory.findFile(originalFileName);
+                    if (movedFile != null) {
+                        renameFile(project, movedFile, desiredFileName);
+                    }
+                },
                 null
         ).run();
     }
-}
 
+    private void renameFile(@NotNull Project project, @NotNull PsiFile file, @NotNull String desiredFileName) {
+        if (!desiredFileName.equals(file.getName())) {
+            new com.intellij.refactoring.rename.RenameProcessor(
+                    project,
+                    file,
+                    desiredFileName,
+                    false,
+                    false
+            ).run();
+        }
+    }
+}

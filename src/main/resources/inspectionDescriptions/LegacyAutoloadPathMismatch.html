@@ -1,21 +1,21 @@
 <html>
 <body>
-Reports top-level global PHP classes whose names and file paths do not agree with a configured
-deterministic legacy autoload mapping.
+Reports recognized PHP files whose existing top-level class declarations and paths do not agree
+with a configured deterministic legacy autoload mapping.
 <p>
-    A mapping combines a project-relative source root, a class pattern, and a file pattern. For
-    example, <code>{qualified}</code> mapped to
-    <code>{qualified:underscorePath}.php</code> implements the PSR-0/PEAR underscore convention.
+    A mapping combines a base directory relative to the project directory, a class pattern, and a file pattern. For
+    example, <code>{qualified:raw|sep(_)}</code> mapped to
+    <code>{qualified:raw|sep(/)}.php</code> implements the PSR-0/PEAR underscore convention.
 </p>
 <p>
     Other mappings can express suffix-based files, case transformations, and fixed path literals,
-    such as <code>{class}_Model</code> mapped to <code>{class:kebab}.model.php</code>.
+    such as <code>{class:pascal}_Model</code> mapped to <code>{class:kebab}.model.php</code>.
 </p>
 <!-- tooltip end -->
 <p>
-    This inspection only applies to top-level global classes covered by configured mappings. It
-    ignores namespaced PHP classes and does not replace PhpStorm's modern PSR-4 inspections.
+    Global rules apply to global classes. Namespaced declarations participate only when the class
+    pattern explicitly declares namespace structure. Files PhpStorm does not recognize as PHP and
+    PHP files without candidate declarations are ignored.
 </p>
 </body>
 </html>
-

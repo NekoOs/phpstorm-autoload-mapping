@@ -1,10 +1,12 @@
 package com.github.nekoos.legacyautoload.mapping.pattern;
 
 import com.github.nekoos.legacyautoload.mapping.transformation.TransformationRegistry;
+import com.github.nekoos.legacyautoload.mapping.value.StructuredValue;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 public final class ClassPattern {
     private final TemplatePattern pattern;
@@ -17,12 +19,27 @@ public final class ClassPattern {
         return pattern.source();
     }
 
-    public @NotNull Optional<Map<String, String>> match(@NotNull String className) {
+    public @NotNull Optional<Map<String, StructuredValue>> match(@NotNull String className) {
+        return matchResult(className).uniqueVariables();
+    }
+
+    public @NotNull PatternMatch matchResult(@NotNull String className) {
         return pattern.match(className);
     }
 
-    public @NotNull Optional<String> render(@NotNull Map<String, String> variables) {
+    public @NotNull Optional<String> render(@NotNull Map<String, StructuredValue> variables) {
         return pattern.render(variables);
     }
-}
 
+    public @NotNull Set<String> variables() {
+        return pattern.variables();
+    }
+
+    public boolean deterministicExtraction() {
+        return pattern.deterministicExtraction();
+    }
+
+    public boolean supportsNamespaces() {
+        return pattern.usesNamespaceStructure();
+    }
+}
