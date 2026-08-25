@@ -1,6 +1,8 @@
 package com.github.nekoos.legacyautoload.inspection;
 
-import com.github.nekoos.legacyautoload.mapping.LegacyAutoloadPresets;
+import com.github.nekoos.legacyautoload.mapping.AmbiguousQuickFixPolicy;
+import com.github.nekoos.legacyautoload.mapping.LegacyAutoloadRulePack;
+import com.github.nekoos.legacyautoload.mapping.LegacyAutoloadRulePackCatalog;
 import com.github.nekoos.legacyautoload.settings.LegacyAutoloadProjectSettings;
 import com.github.nekoos.legacyautoload.settings.LegacyAutoloadProjectSettings.MappingState;
 import com.intellij.codeInsight.daemon.impl.HighlightInfo;
@@ -35,6 +37,36 @@ public final class LegacyAutoloadPathMismatchInspectionTest extends BasePlatform
         );
     }
 
+    public void testZendFramework1ApplicationSchemaUsesApplicationResourcePaths() {
+        PsiFile file = myFixture.addFileToProject(
+                "website/application/models/Report/User.php",
+                "<?php class App_Model_Report_User {}"
+        );
+        configureRulePack(LegacyAutoloadRulePackCatalog.ZEND_FRAMEWORK_1_APPLICATION, "website");
+
+        assertProblemCount(file, 0);
+    }
+
+    public void testLaravel3ApplicationSchemaUsesNestedControllerPaths() {
+        PsiFile file = myFixture.addFileToProject(
+                "legacy/application/controllers/admin/panel.php",
+                "<?php class Admin_Panel_Controller extends Base_Controller {}"
+        );
+        configureRulePack(LegacyAutoloadRulePackCatalog.LARAVEL_3_APPLICATION, "legacy");
+
+        assertProblemCount(file, 0);
+    }
+
+    public void testCodeIgniter2ApplicationSchemaUsesLowercaseModelFiles() {
+        PsiFile file = myFixture.addFileToProject(
+                "app/application/models/user_model.php",
+                "<?php class User_model extends CI_Model {}"
+        );
+        configureRulePack(LegacyAutoloadRulePackCatalog.CODEIGNITER_2_APPLICATION, "app");
+
+        assertProblemCount(file, 0);
+    }
+
     public void testUnitClassWithMissingPathSegmentIsInvalid() {
         assertPsr0ProblemCount(
                 "tests/unit",
@@ -67,7 +99,7 @@ public final class LegacyAutoloadPathMismatchInspectionTest extends BasePlatform
                 "legacy/models",
                 "my-class.model.php",
                 "<?php class MyClass_Model {}",
-                "{class}_Model",
+                "{class:pascal}_Model",
                 "{class:kebab}.model.php",
                 0
         );
@@ -78,7 +110,7 @@ public final class LegacyAutoloadPathMismatchInspectionTest extends BasePlatform
                 "legacy/models",
                 "my-class.model.php",
                 "<?php class OtherClass_Model {}",
-                "{class}_Model",
+                "{class:pascal}_Model",
                 "{class:kebab}.model.php",
                 1
         );
@@ -89,10 +121,110 @@ public final class LegacyAutoloadPathMismatchInspectionTest extends BasePlatform
                 "legacy",
                 "controllers/customer.controller.php",
                 "<?php class CustomerController {}",
-                "{class}Controller",
+                "{class:pascal}Controller",
                 "controllers/{class:snake}.controller.php",
                 0
         );
+    }
+
+    public void testIndependentRulesInSameSourceActAsOr() {
+        PsiFile file = myFixture.addFileToProject(
+                "app/controllers/customer.controller.php",
+                "<?php class CustomerController {}"
+        );
+        String root = resolveRoot(file, 1);
+        LegacyAutoloadProjectSettings.getInstance(getProject()).setMappingStates(List.of(
+                new MappingState(
+                        "Modern controllers", root, "{name:pascal}Controller", "{name:pascal}.php"
+                ),
+                new MappingState(
+                        "Legacy controllers", root, "{name:pascal}Controller", "{name:lower}.controller.php"
+                )
+        ));
+
+        assertProblemCount(file, 0);
+    }
+
+    public void testExplicitFallbackOffersEveryConfiguredMoveAlternative() {
+        PsiFile file = myFixture.addFileToProject(
+                "app/controllers/legacy-customer.php",
+                "<?php class CustomerController {}"
+        );
+        String root = resolveRoot(file, 1);
+        MappingState modern = new MappingState(
+                "modern-rule", "Modern controllers", root,
+                "{name:pascal}Controller", "{name:pascal}.php", "controller-chain", 0,
+                AmbiguousQuickFixPolicy.OFFER_NAMED_ALTERNATIVES.name()
+        );
+        MappingState legacy = new MappingState(
+                "legacy-rule", "Legacy controllers", root,
+                "{name:pascal}Controller", "{name:lower}.controller.php", "controller-chain", 1,
+                AmbiguousQuickFixPolicy.OFFER_NAMED_ALTERNATIVES.name()
+        );
+        LegacyAutoloadProjectSettings.getInstance(getProject()).setMappingStates(List.of(modern, legacy));
+        configureAtClassName(file);
+
+        List<String> intentions = myFixture.getAvailableIntentions().stream()
+                .map(IntentionAction::getText)
+                .filter(text -> text.startsWith("Move file using"))
+                .sorted()
+                .toList();
+        assertEquals(List.of(
+                "Move file using \"Legacy controllers\"",
+                "Move file using \"Modern controllers\""
+        ), intentions);
+    }
+
+    public void testMoreSpecificRootDoesNotImplicitlyHideIndependentGeneralRule() {
+        PsiFile file = myFixture.addFileToProject(
+                "app/controllers/CustomerController.php",
+                "<?php class CustomerController {}"
+        );
+        LegacyAutoloadProjectSettings.getInstance(getProject()).setMappingStates(List.of(
+                new MappingState(
+                        "Project convention", "", "{name}Controller",
+                        "app/controllers/{name}Controller.php"
+                ),
+                new MappingState(
+                        "Application exception", "app", "{name}Controller",
+                        "legacy/{name}.php"
+                )
+        ));
+
+        assertProblemCount(file, 0);
+    }
+
+    public void testWordPressPatternOffersCanonicalRename() {
+        PsiFile file = myFixture.addFileToProject(
+                "wordpress/class-wp-error.php",
+                "<?php class WP_Wrong {}"
+        );
+        LegacyAutoloadProjectSettings.getInstance(getProject()).setMappingStates(List.of(
+                new MappingState(
+                        "WordPress class files", "wordpress",
+                        "WP_{name:pascal}", "class-wp-{name:kebab}.php"
+                )
+        ));
+        configureAtClassName(file);
+
+        assertNotNull(myFixture.findSingleIntention("Rename class to expected legacy autoload name"));
+    }
+
+    public void testAmbiguousClassExtractionDoesNotOfferMove() {
+        myFixture.addFileToProject("legacy/My/Keep.php", "<?php");
+        PsiFile file = myFixture.addFileToProject(
+                "legacy/wrong.php",
+                "<?php class Some_My_Example_barReport_service {}"
+        );
+        LegacyAutoloadProjectSettings.getInstance(getProject()).setMappingStates(List.of(
+                new MappingState(
+                        "Ambiguous extraction", "legacy",
+                        "{vendor:upper}{name:pascal}", "{vendor:lower}/{name:lower}.php"
+                )
+        ));
+        configureAtClassName(file);
+
+        assertNull(myFixture.getAvailableIntention("Move file to mapped autoload path"));
     }
 
     public void testNamespacedClassIsIgnored() {
@@ -107,7 +239,7 @@ public final class LegacyAutoloadPathMismatchInspectionTest extends BasePlatform
     public void testFileOutsideConfiguredMappingsIsIgnored() {
         PsiFile file = myFixture.addFileToProject("src/App/Dao/User.php", "<?php class WrongName {}");
         LegacyAutoloadProjectSettings.getInstance(getProject()).setMappingStates(List.of(
-                MappingState.fromPreset(LegacyAutoloadPresets.PSR0_PEAR, "website/application/classes")
+                fromPsr0Pack("website/application/classes")
         ));
         assertProblemCount(file, 0);
     }
@@ -161,12 +293,12 @@ public final class LegacyAutoloadPathMismatchInspectionTest extends BasePlatform
         );
     }
 
-    public void testEveryTopLevelGlobalClassIsValidated() {
+    public void testOneExactDeclarationMakesTheExistingPairValid() {
         assertPsr0ProblemCount(
                 "tests/unit",
                 "Cli/Job/FooTest.php",
                 "<?php class Cli_Job_FooTest {} class Cli_Job_Helper {}",
-                1
+                0
         );
     }
 
@@ -189,7 +321,7 @@ public final class LegacyAutoloadPathMismatchInspectionTest extends BasePlatform
         List<HighlightInfo> problems = legacyProblems(file);
         assertSize(1, problems);
         assertEquals(
-                "Legacy autoload mapping 'PSR-0 / PEAR underscores to directories' does not match class and file. "
+                "Legacy autoload mapping 'PEAR / PSR-0' does not match class and file. "
                         + "Expected class: Cli_Job_ReportSubscriptionsScdfWorkerTest. "
                         + "Actual: Cli_Job_ReportSubscriptionsWorkerTest.",
                 problems.getFirst().getDescription()
@@ -237,6 +369,143 @@ public final class LegacyAutoloadPathMismatchInspectionTest extends BasePlatform
         assertNotNull(myFixture.findSingleIntention("Move file to mapped autoload path"));
     }
 
+    public void testMoveQuickFixMovesAndRenamesFileThroughRefactoringApi() throws Exception {
+        myFixture.addFileToProject("legacy/controllers/keep.php", "<?php");
+        PsiFile file = myFixture.addFileToProject(
+                "legacy/wrong.php",
+                "<?php class CustomerController {}"
+        );
+        LegacyAutoloadProjectSettings.getInstance(getProject()).setMappingStates(List.of(
+                new MappingState(
+                        "Controllers",
+                        "legacy",
+                        "{name:pascal}Controller",
+                        "controllers/{name:lower}.controller.php"
+                )
+        ));
+        configureAtClassName(file);
+
+        IntentionAction move = myFixture.findSingleIntention("Move file to mapped autoload path");
+        myFixture.launchAction(move);
+
+        VirtualFile projectDirectory = ProjectUtil.guessProjectDir(getProject());
+        assertNotNull(projectDirectory);
+        assertNull(projectDirectory.findFileByRelativePath("legacy/wrong.php"));
+        VirtualFile moved = projectDirectory.findFileByRelativePath(
+                "legacy/controllers/customer.controller.php"
+        );
+        assertNotNull(moved);
+        assertEquals("<?php class CustomerController {}", VfsUtilCore.loadText(moved));
+    }
+
+    public void testMultipleCandidatesWithoutMatchAreAmbiguousAndHaveNoAutomaticFix() {
+        PsiFile file = myFixture.addFileToProject(
+                "legacy/controllers/order.php",
+                "<?php class CustomerController {} class InvoiceController {}"
+        );
+        LegacyAutoloadProjectSettings.getInstance(getProject()).setMappingStates(List.of(
+                new MappingState("Controllers", "legacy", "{name:pascal}Controller",
+                        "controllers/{name:lower}.php")
+        ));
+        configureAtFile(file);
+
+        assertProblemCount(file, 1);
+        assertNull(myFixture.getAvailableIntention("Rename class to expected legacy autoload name"));
+        assertNull(myFixture.getAvailableIntention("Move file to mapped autoload path"));
+    }
+
+    public void testAmbiguousPolicyOffersActionsNamedByDeclaration() {
+        PsiFile file = myFixture.addFileToProject(
+                "legacy/controllers/order.php",
+                "<?php class CustomerController {} class InvoiceController {}"
+        );
+        LegacyAutoloadProjectSettings.getInstance(getProject()).setMappingStates(List.of(
+                new MappingState(
+                        "controllers", "Controllers", "legacy",
+                        "{name:pascal}Controller", "controllers/{name:lower}.php",
+                        "", 0, AmbiguousQuickFixPolicy.OFFER_NAMED_ALTERNATIVES.name()
+                )
+        ));
+        configureAtFile(file);
+
+        List<String> renames = myFixture.getAvailableIntentions().stream()
+                .map(IntentionAction::getText)
+                .filter(text -> text.startsWith("Rename Customer") || text.startsWith("Rename Invoice"))
+                .sorted().toList();
+        assertEquals(List.of(
+                "Rename CustomerController to OrderController",
+                "Rename InvoiceController to OrderController"
+        ), renames);
+    }
+
+    public void testMultipleExactDeclarationsAreAccepted() {
+        PsiFile file = myFixture.addFileToProject(
+                "legacy/daily-orders.php",
+                "<?php class DailyCustomerController {} class DailyInvoiceController {}"
+        );
+        LegacyAutoloadProjectSettings.getInstance(getProject()).setMappingStates(List.of(
+                new MappingState("Customers", "legacy", "{name:pascal}CustomerController",
+                        "{name:lower}-orders.php"),
+                new MappingState("Invoices", "legacy", "{name:pascal}InvoiceController",
+                        "{name:lower}-orders.php")
+        ));
+
+        assertProblemCount(file, 0);
+    }
+
+    public void testNonPhpFileIsNotInspectedEvenWhenItContainsPhpText() {
+        PsiFile file = myFixture.addFileToProject(
+                "legacy/controllers/customer.txt",
+                "<?php class WrongController {}"
+        );
+        LegacyAutoloadProjectSettings.getInstance(getProject()).setMappingStates(List.of(
+                new MappingState("Controllers", "legacy", "{name:pascal}Controller",
+                        "controllers/{name:lower}.txt")
+        ));
+
+        assertProblemCount(file, 0);
+    }
+
+    public void testExplicitNamespaceRuleValidatesNamespacedDeclaration() {
+        PsiFile file = myFixture.addFileToProject(
+                "app/src/app/dao/user.model.php",
+                "<?php namespace App\\Dao; class User_Model {}"
+        );
+        LegacyAutoloadProjectSettings.getInstance(getProject()).setMappingStates(List.of(
+                new MappingState(
+                        "Namespaced models", "app",
+                        "{namespace:pascal|sep(\\)}\\{name:pascal}_Model",
+                        "src/{namespace:lower|sep(/)}/{name:lower}.model.php"
+                )
+        ));
+
+        assertProblemCount(file, 0);
+    }
+
+    public void testClassToFileOnlyRuleOffersOnlyMoveFix() {
+        PsiFile file = myFixture.addFileToProject("legacy/wrong.php", "<?php class Core_User {}");
+        LegacyAutoloadProjectSettings.getInstance(getProject()).setMappingStates(List.of(
+                new MappingState("Partial", "legacy", "{module:pascal}_{name:pascal}",
+                        "{name:lower}.php")
+        ));
+        configureAtClassName(file);
+
+        assertNotNull(myFixture.getAvailableIntention("Move file to mapped autoload path"));
+        assertNull(myFixture.getAvailableIntention("Rename class to expected legacy autoload name"));
+    }
+
+    public void testFileToClassOnlyRuleOffersOnlyRenameFix() {
+        PsiFile file = myFixture.addFileToProject("legacy/core/user.php", "<?php class Wrong {}");
+        LegacyAutoloadProjectSettings.getInstance(getProject()).setMappingStates(List.of(
+                new MappingState("Partial", "legacy", "{name:pascal}",
+                        "{module:lower}/{name:lower}.php")
+        ));
+        configureAtClassName(file);
+
+        assertNotNull(myFixture.getAvailableIntention("Rename class to expected legacy autoload name"));
+        assertNull(myFixture.getAvailableIntention("Move file to mapped autoload path"));
+    }
+
     private void assertPsr0ProblemCount(
             @NotNull String rootPath,
             @NotNull String relativeFilePath,
@@ -267,7 +536,7 @@ public final class LegacyAutoloadPathMismatchInspectionTest extends BasePlatform
         PsiFile file = myFixture.addFileToProject(rootPath + "/" + relativeFilePath, contents);
         String resolvedRoot = resolveRoot(file, segmentCount(relativeFilePath));
         LegacyAutoloadProjectSettings.getInstance(getProject()).setMappingStates(List.of(
-                new MappingState("Custom", resolvedRoot, classPattern, filePattern, "")
+                new MappingState("Custom", resolvedRoot, classPattern, filePattern)
         ));
         assertProblemCount(file, expectedCount);
     }
@@ -290,12 +559,20 @@ public final class LegacyAutoloadPathMismatchInspectionTest extends BasePlatform
 
     private void configurePsr0Mappings(@NotNull List<RootedFile> rootedFiles) {
         List<MappingState> mappings = rootedFiles.stream()
-                .map(rootedFile -> MappingState.fromPreset(
-                        LegacyAutoloadPresets.PSR0_PEAR,
-                        resolveRoot(rootedFile.file(), rootedFile.relativePathSegmentCount())
-                ))
+                .map(rootedFile -> fromPsr0Pack(
+                        resolveRoot(rootedFile.file(), rootedFile.relativePathSegmentCount())))
                 .toList();
         LegacyAutoloadProjectSettings.getInstance(getProject()).setMappingStates(mappings);
+    }
+
+    private static @NotNull MappingState fromPsr0Pack(@NotNull String baseDirectory) {
+        return MappingState.fromRulePack(LegacyAutoloadRulePackCatalog.PEAR_PSR0, baseDirectory).getFirst();
+    }
+
+    private void configureRulePack(@NotNull LegacyAutoloadRulePack rulePack, @NotNull String baseRoot) {
+        LegacyAutoloadProjectSettings.getInstance(getProject()).setMappingStates(
+                MappingState.fromRulePack(rulePack, baseRoot)
+        );
     }
 
     private @NotNull String resolveRoot(@NotNull PsiFile file, int relativePathSegmentCount) {
@@ -323,7 +600,12 @@ public final class LegacyAutoloadPathMismatchInspectionTest extends BasePlatform
         myFixture.doHighlighting();
     }
 
+    private void configureAtFile(@NotNull PsiFile file) {
+        myFixture.configureFromExistingVirtualFile(file.getVirtualFile());
+        myFixture.getEditor().getCaretModel().moveToOffset(0);
+        myFixture.doHighlighting();
+    }
+
     private record RootedFile(@NotNull PsiFile file, int relativePathSegmentCount) {
     }
 }
-

@@ -1,7 +1,6 @@
 package com.github.nekoos.legacyautoload.mapping;
 
 import com.github.nekoos.legacyautoload.mapping.transformation.TransformationRegistry;
-import com.github.nekoos.legacyautoload.mapping.transformation.ValueTransformation;
 import junit.framework.TestCase;
 import org.jetbrains.annotations.NotNull;
 
@@ -12,105 +11,216 @@ public final class LegacyAutoloadResolverTest extends TestCase {
     private final TransformationRegistry transformations = TransformationRegistry.defaults();
     private final LegacyAutoloadResolver resolver = new LegacyAutoloadResolver();
 
-    public void testPsr0PresetMapsClassesAndFilesInBothDirections() {
-        LegacyAutoloadMapping mapping = fromPreset(LegacyAutoloadPresets.PSR0_PEAR);
-
-        assertMapping(mapping, "Foo_Bar_Baz", "Foo/Bar/Baz.php");
-        assertMapping(mapping, "App_Dao_Report_ReportExecutions", "App/Dao/Report/ReportExecutions.php");
-        assertMapping(mapping, "Doctrine_Record_Abstract", "Doctrine/Record/Abstract.php");
+    public void testBuiltInRulePackCatalogContainsDocumentedConventions() {
+        assertEquals(
+                List.of("PEAR / PSR-0", "Zend Framework 1 application",
+                        "Laravel 3 application", "CodeIgniter 2 application"),
+                LegacyAutoloadRulePackCatalog.defaults().all().stream()
+                        .map(LegacyAutoloadRulePack::displayName).toList()
+        );
     }
 
-    public void testModelSuffixCanPreserveClassCase() {
-        assertMapping(fromPreset(LegacyAutoloadPresets.MODEL_SUFFIX), "MyClass_Model", "MyClass.model.php");
-    }
-
-    public void testModelSuffixCanTransformClassToKebabCase() {
-        assertMapping(fromPreset(LegacyAutoloadPresets.KEBAB_MODEL_SUFFIX), "MyClass_Model", "my-class.model.php");
-    }
-
-    public void testControllerSuffixCanUseFixedDirectoryAndSnakeCase() {
+    public void testPearPsr0UsesDeclaredStructuralSegments() {
         assertMapping(
-                fromPreset(LegacyAutoloadPresets.CONTROLLER_SUFFIX),
-                "CustomerController",
-                "controllers/customer.controller.php"
+                fromRulePack(LegacyAutoloadRulePackCatalog.PEAR_PSR0),
+                "App_Dao_User",
+                "App/Dao/User.php"
         );
     }
 
-    public void testClassCanMapToFixedFileSuffix() {
-        assertMapping(fromPreset(LegacyAutoloadPresets.CLS_SUFFIX), "MyClass", "MyClass.cls.php");
+    public void testLaravelAndCodeIgniterRulePacksUseCanonicalDsl() {
+        assertMapping(
+                fromRule(LegacyAutoloadRulePackCatalog.LARAVEL_3_APPLICATION, "Laravel 3 controllers"),
+                "Admin_Panel_Controller",
+                "admin/panel.php"
+        );
+        LegacyAutoloadMapping nested = fromRule(
+                LegacyAutoloadRulePackCatalog.CODEIGNITER_2_APPLICATION,
+                "CodeIgniter 2 nested controllers"
+        );
+        assertEquals(Optional.of("Shoes"), resolver.resolveClass(nested, "products/shoes.php"));
+        assertTrue(resolver.resolveFile(nested, "Shoes").isEmpty());
+        assertEquals("Solo archivo → clase", nested.capabilities().label());
     }
 
-    public void testClassCanMapToFixedFilePrefix() {
-        assertMapping(fromPreset(LegacyAutoloadPresets.FIXED_CLASS_PREFIX), "Database", "class.database.php");
+    public void testCanonicalLowercaseToPascal() {
+        assertMapping(custom("{name:pascal}", "{name:lower}.php"), "Database", "database.php");
     }
 
-    public void testNamespaceAndClassVariablesCanUseSeparatorAliases() {
-        LegacyAutoloadMapping mapping = LegacyAutoloadMapping.create(
-                "Namespace and class",
-                "src",
-                "{namespace:_}_{class}",
-                "{namespace:/}/{class}.php",
-                transformations
+    public void testCanonicalLowercaseToUppercase() {
+        assertMapping(custom("{name:upper}", "{name:lower}.php"), "DATABASE", "database.php");
+    }
+
+    public void testStructuralPathSegmentsRoundTripToUnderscores() {
+        assertMapping(
+                custom("{value:pascal|sep(_)}", "{value:lower|sep(/)}.php"),
+                "App_Dao_User",
+                "app/dao/user.php"
+        );
+    }
+
+    public void testLiteralsExposeStructureWithoutSplittingLowercaseWords() {
+        assertMapping(custom("My{name:pascal}", "my{name:lower}.php"), "MyClass", "myclass.php");
+        assertEquals(
+                Optional.of("Myclass"),
+                resolver.resolveClass(custom("{name:pascal}", "{name:lower}.php"), "myclass.php")
+        );
+    }
+
+    public void testSuffixesAndDeclaredWordSeparators() {
+        assertMapping(custom("My{name:pascal}Controller", "my_{name:snake}.controller"),
+                "MyUserController", "my_user.controller");
+        assertMapping(custom("My{name:pascal}Controller", "my.{name:dot}.controller"),
+                "MyUserController", "my.user.controller");
+        assertMapping(custom("My{name:pascal}Controller", "my-{name:kebab}.controller"),
+                "MyUserController", "my-user.controller");
+        assertMapping(custom("My{name:pascal}Controller", "controller/my-{name:kebab}"),
+                "MyUserController", "controller/my-user");
+        assertMapping(custom("My{name:pascal}Controller", "controllers/my-{name:kebab}"),
+                "MyUserController", "controllers/my-user");
+        assertMapping(custom("My{name:pascal}", "my-{name:kebab}.class.php"),
+                "MyClass", "my-class.class.php");
+    }
+
+    public void testAcronymIsALiteralRatherThanAnInference() {
+        assertMapping(
+                custom("WP_{name:pascal}", "class-wp-{name:kebab}.php"),
+                "WP_Error",
+                "class-wp-error.php"
+        );
+    }
+
+    public void testClassOnlyVariableProducesClassToFileCapability() {
+        LegacyAutoloadMapping mapping = custom("{module:pascal}_{name:pascal}", "{name:lower}.php");
+
+        assertEquals("Solo clase → archivo", mapping.capabilities().label());
+        assertEquals(List.of("La variable {module} no aparece en el patrón de archivo."),
+                mapping.capabilities().notices());
+        assertEquals(Optional.of("user.php"), resolver.resolveFile(mapping, "Core_User"));
+        assertTrue(resolver.resolveClass(mapping, "user.php").isEmpty());
+    }
+
+    public void testFileOnlyVariableProducesFileToClassCapability() {
+        LegacyAutoloadMapping mapping = custom("{name:pascal}",
+                "{module:lower|sep(/)}/{name:lower}.php");
+
+        assertEquals("Solo archivo → clase", mapping.capabilities().label());
+        assertEquals(List.of("La variable {module} no aparece en el patrón de clase."),
+                mapping.capabilities().notices());
+        assertEquals(Optional.of("User"), resolver.resolveClass(mapping, "core/user.php"));
+        assertTrue(resolver.resolveFile(mapping, "User").isEmpty());
+    }
+
+    public void testAdjacentVariablesAreARealExtractionAmbiguity() {
+        LegacyAutoloadMapping mapping = custom(
+                "{vendor:upper}{name:pascal}",
+                "{vendor:lower}/{name:lower}.php"
         );
 
-        assertMapping(mapping, "My_Namespace_Example", "My/Namespace/Example.php");
+        assertFalse(mapping.capabilities().deriveFileFromClass());
+        assertTrue(mapping.capabilities().deriveExpectedNameFromFile());
+        assertEquals(MappingResolution.Status.AMBIGUOUS,
+                resolver.resolveFileResult(mapping, "ACMEUser").status());
+        assertEquals(Optional.of("ACMEUser"), resolver.resolveClass(mapping, "acme/user.php"));
     }
 
-    public void testNewTransformationCanBeRegisteredWithoutChangingResolver() {
-        ValueTransformation reverse = new ValueTransformation() {
-            @Override
-            public @NotNull String id() {
-                return "reverse";
-            }
+    public void testLengthRestrictionDisambiguatesAdjacentVariables() {
+        assertMapping(
+                custom("{vendor:upper|length(2)}{name:pascal}",
+                        "{vendor:lower}/{name:lower}.php"),
+                "WPUser",
+                "wp/user.php"
+        );
+    }
 
-            @Override
-            public @NotNull String apply(@NotNull String value) {
-                return new StringBuilder(value).reverse().toString();
-            }
+    public void testNonemptyRestrictionIsPartOfTheCanonicalPipeline() {
+        assertMapping(custom("{name:pascal|nonempty}", "{name:lower|nonempty}.php"),
+                "User", "user.php");
+    }
 
-            @Override
-            public @NotNull Optional<String> reverse(@NotNull String value) {
-                return Optional.of(apply(value));
-            }
-        };
-        TransformationRegistry registry = new TransformationRegistry(List.of(reverse));
-        LegacyAutoloadMapping mapping = LegacyAutoloadMapping.create(
-                "Reverse",
-                "src",
-                "{class}",
-                "{class:reverse}.php",
-                registry
+    public void testExplicitNamespaceComponentsParticipate() {
+        LegacyAutoloadMapping mapping = custom(
+                "{namespace:pascal|sep(\\)}\\{name:pascal}_Model",
+                "src/{namespace:lower|sep(/)}/{name:snake}.model.php"
         );
 
-        assertMapping(mapping, "Legacy", "ycageL.php");
+        assertTrue(mapping.classPattern().supportsNamespaces());
+        assertEquals(com.github.nekoos.legacyautoload.mapping.pattern.PatternMatch.Status.UNIQUE,
+                mapping.filePattern().matchResult("src/app/dao/user.model.php").status());
+        assertMapping(mapping, "App\\Dao\\User_Model", "src/app/dao/user.model.php");
+    }
+
+    public void testGlobalPatternDoesNotDeclareNamespaceParticipation() {
+        assertFalse(custom("{name:pascal}", "{name:lower}.php")
+                .classPattern().supportsNamespaces());
+    }
+
+    public void testAliasesAndSpecialCompositesAreRejected() {
+        assertInvalidPattern("{name:underscorePath}.php");
+        assertInvalidPattern("{name:lowerPath}.php");
+        assertInvalidPattern("{name:pascalUnderscore}.php");
+        assertInvalidPattern("{name:path}.php");
+        assertInvalidPattern("{name:/}.php");
+        assertInvalidPattern("{name:_}.php");
+    }
+
+    public void testUnknownOrDuplicatePipelineStagesAreRejected() {
+        assertInvalidPattern("{name:lower|lower}.php");
+        assertInvalidPattern("{name:sep(/)|sep(_)}.php");
+        assertInvalidPattern("{name:sep(/)|lower}.php");
+        assertInvalidPattern("{name:raw|nonempty|length(4)|sep(/)|lower}.php");
     }
 
     public void testNonMatchingClassPatternDoesNotResolveFile() {
-        LegacyAutoloadMapping mapping = fromPreset(LegacyAutoloadPresets.MODEL_SUFFIX);
-
-        assertTrue(resolver.resolveFile(mapping, "MyClass").isEmpty());
+        assertTrue(resolver.resolveFile(
+                custom("{name:pascal}_Model", "{name:kebab}.model.php"), "MyClass").isEmpty());
     }
 
     public void testUnsafeRenderedPathIsRejected() {
-        LegacyAutoloadMapping mapping = LegacyAutoloadMapping.create(
-                "Unsafe",
-                "src",
-                "{class}",
-                "../{class}.php",
-                transformations
-        );
-
-        assertTrue(resolver.resolveFile(mapping, "MyClass").isEmpty());
+        assertTrue(resolver.resolveFile(
+                custom("{name:pascal}", "../{name:lower}.php"), "MyClass").isEmpty());
     }
 
-    private @NotNull LegacyAutoloadMapping fromPreset(@NotNull LegacyAutoloadPreset preset) {
+    public void testPairValidationUsesEitherAvailableDirection() {
+        LegacyAutoloadMapping classToFile = custom("{module:pascal}_{name:pascal}", "{name:lower}.php");
+        LegacyAutoloadMapping fileToClass = custom("{name:pascal}", "{module:lower}/{name:lower}.php");
+
+        assertTrue(resolver.validatesPair(classToFile, "Core_User", "user.php"));
+        assertTrue(resolver.validatesPair(fileToClass, "User", "core/user.php"));
+        assertFalse(resolver.validatesPair(classToFile, "Core_User", "other.php"));
+    }
+
+    private @NotNull LegacyAutoloadMapping fromRulePack(@NotNull LegacyAutoloadRulePack rulePack) {
+        return fromRule(rulePack.rules().getFirst());
+    }
+
+    private @NotNull LegacyAutoloadMapping fromRule(
+            @NotNull LegacyAutoloadRulePack rulePack,
+            @NotNull String ruleName
+    ) {
+        return fromRule(rulePack.rules().stream()
+                .filter(candidate -> candidate.name().equals(ruleName)).findFirst().orElseThrow());
+    }
+
+    private @NotNull LegacyAutoloadMapping fromRule(@NotNull LegacyAutoloadRuleTemplate rule) {
         return LegacyAutoloadMapping.create(
-                preset.displayName(),
-                "src",
-                preset.classPattern(),
-                preset.filePattern(),
-                transformations
-        );
+                rule.name(), "src", rule.classPattern(), rule.filePattern(), transformations);
+    }
+
+    private @NotNull LegacyAutoloadMapping custom(
+            @NotNull String classPattern,
+            @NotNull String filePattern
+    ) {
+        return LegacyAutoloadMapping.create("Custom", "src", classPattern, filePattern, transformations);
+    }
+
+    private void assertInvalidPattern(@NotNull String filePattern) {
+        try {
+            custom("{name:raw}", filePattern);
+            fail("Expected an invalid canonical transformation pipeline");
+        } catch (IllegalArgumentException exception) {
+            assertTrue(exception.getMessage().contains("Unknown or invalid transformation pipeline"));
+        }
     }
 
     private void assertMapping(
@@ -120,6 +230,6 @@ public final class LegacyAutoloadResolverTest extends TestCase {
     ) {
         assertEquals(Optional.of(filePath), resolver.resolveFile(mapping, className));
         assertEquals(Optional.of(className), resolver.resolveClass(mapping, filePath));
+        assertTrue(resolver.validatesPair(mapping, className, filePath));
     }
 }
-
