@@ -1,196 +1,213 @@
 # Legacy Autoload Mapping for PhpStorm
 
-Legacy Autoload Mapping teaches PhpStorm to resolve PHP classes that use deterministic legacy
-class-to-file conventions the IDE does not understand natively.
+Legacy Autoload Mapping validates deterministic relationships between PHP declarations that already
+exist and files PhpStorm already recognizes as PHP. It is intended for applications that predate
+modern Composer/PSR-4 layouts. The plugin does not discover PHP in unknown file types, invent class
+declarations, change file-type associations, or infer undeclared framework conventions.
 
-It is intended for applications that predate modern Composer/PSR-4 layouts, including projects
-whose autoloaders are implemented with `spl_autoload_register()`. It does not require namespaces,
-Composer metadata, or changes to the application's architecture.
+PSR-0 is one bundled rule pack, not the plugin's data model.
 
-PSR-0 is one supported preset, not the plugin's data model.
+## Rules and evaluation
 
-## How mappings work
+Every project rule is flat and contains:
 
-Each project-level `LegacyAutoloadMapping` contains four pieces of information:
+- a base directory relative to the project directory;
+- a class pattern;
+- a file pattern;
+- optional explicit fallback `groupHash`/order metadata;
+- a policy controlling named alternatives for ambiguous quick fixes.
 
-- a descriptive name;
-- a project-relative `SourceRoot`;
-- a declarative `ClassPattern`;
-- a declarative `FilePattern`.
+Independent rules over the same base directory are alternatives (`OR`). Base directories are checked
+from the most specific to their parents. Fallback chains are explicit; no relationship is inferred from directory
+nesting or a framework name. Every complete valid result is retained as an alternative.
 
-Patterns combine fixed literals with variables. A variable can apply a registered transformation:
-
-```text
-Class pattern: {class}_Model
-File pattern:  {class:kebab}.model.php
-```
-
-This maps in both directions:
+Patterns contain variables, transformations, and literal prefixes, suffixes, directories, and file
+extensions:
 
 ```text
-MyClass_Model ↔ my-class.model.php
+Class pattern: My{name:pascal}Controller
+File pattern:  controllers/my-{name:kebab}.controller.php
 ```
-
-Another mapping can be expressed as:
 
 ```text
-Class pattern: {namespace:_}_{class}
-File pattern:  {namespace:/}/{class}.php
+MyOrderController ↔ controllers/my-order.controller.php
 ```
 
-which produces:
+Literals express known structure directly:
 
 ```text
-My_Namespace_Example ↔ My/Namespace/Example.php
+WP_{name:pascal} ↔ class-wp-{name:kebab}.php
+My{name:pascal}  ↔ my{name:lower}.php
 ```
 
-The initial pattern language is deliberately small. It supports fixed prefix/suffix literals and
-these transformations:
+No acronym expansion, pluralization, optional directory, or word splitting from an unstructured
+lowercase value is inferred. For example, `{name:lower}` captures `myclass` atomically. If `My` is a
+known prefix, write it as a literal as shown above.
 
-| Transformation | Example |
+## Canonical pattern DSL
+
+Case formats:
+
+| Format | Rendered example |
 | --- | --- |
-| `underscorePath` or `/` | `Foo_Bar` ↔ `Foo/Bar` |
-| `_` | Identity alias useful in class patterns |
-| `kebab` | `MyClass` ↔ `my-class` |
-| `snake` | `CustomerOrder` ↔ `customer_order` |
-| `lower` | `Database` ↔ `database` for simple class names |
+| `raw` (also the default) | `User` |
+| `lower` | `user` |
+| `upper` | `USER` |
+| `pascal` | `OrderItem` |
+| `camel` | `orderItem` |
+| `snake` | `order_item` |
+| `kebab` | `order-item` |
+| `dot` | `order.item` |
 
-Transformations implement a small interface and are supplied through a registry. Adding one does
-not require modifying either the mapping resolver or the project resolver.
+Structural separators are independent stages:
 
-## Representative conventions
+| Stage | Meaning |
+| --- | --- |
+| `sep(_)` | underscore-separated structural components |
+| `sep(/)` | path components |
+| `sep(\)` | PHP namespace components |
 
-The bundled presets are implemented by the same generic pattern engine:
+Controlled restrictions are `length(n)` and `nonempty`. Arbitrary regular expressions and callback
+transformations are intentionally unsupported.
 
-| Class | File | Preset or pattern |
-| --- | --- | --- |
-| `Foo_Bar_Baz` | `Foo/Bar/Baz.php` | PSR-0 / PEAR |
-| `App_Dao_Report_ReportExecutions` | `App/Dao/Report/ReportExecutions.php` | PSR-0 used by ZF1-style code |
-| `Doctrine_Record_Abstract` | `Doctrine/Record/Abstract.php` | PSR-0 used by Doctrine 1-style code |
-| `MyClass_Model` | `MyClass.model.php` | `_Model` → `.model.php` |
-| `MyClass_Model` | `my-class.model.php` | `_Model` plus `kebab` |
-| `CustomerController` | `controllers/customer.controller.php` | fixed directory and `snake` |
-| `MyClass` | `MyClass.cls.php` | fixed file suffix |
-| `Database` | `class.database.php` | fixed prefix and `lower` |
-
-Framework names are documentation context only. The mapping engine does not contain ZF1, Doctrine,
-or other framework-specific branches.
-
-Arbitrary explicit maps are intentionally outside this model:
+Stages are written with `|`, applied from left to right, and inverted from right to left:
 
 ```text
-Foo → weird/place/banana.php
-Bar → legacy/x7.php
+Class pattern: {value:pascal|sep(_)}
+File pattern:  {value:lower|sep(/)}.php
+
+App_Dao_User ↔ app/dao/user.php
 ```
 
-Those mappings are data lookups rather than deterministic naming transformations and should be
-implemented by a separate responsibility.
+The captured value preserves both structural components and word boundaries. Case conversion never
+has to pretend that a path is a flat string. Case normalization has a deterministic canonical
+inverse and does not make a rule forward-only:
+
+```text
+{name:pascal} ↔ {name:lower}.php   # Database ↔ database.php
+{name:upper}  ↔ {name:lower}.php   # DATABASE ↔ database.php
+```
+
+Adjacent variable-length captures such as `{vendor}{name}` are extraction ambiguities. Declare a
+literal boundary or a controlled length when one exists:
+
+```text
+{vendor:upper|length(2)}{name:pascal}
+```
+
+Removed aliases such as `underscorePath`, `lowerPath`, `pascalUnderscore`, `_`, `/`, and `path` are
+not accepted. Their behavior is expressed by composing case and `sep(...)` explicitly.
+
+## Directional capabilities
+
+The editor reports three independent abilities for every rule:
+
+1. validate an existing declaration/file pair;
+2. derive a file from an existing class declaration;
+3. derive the expected name for an existing declaration from its file.
+
+Missing variables limit only the affected direction. They do not invalidate the rule:
+
+```text
+{module:pascal}_{name:pascal} ↔ {name:lower}.php
+```
+
+is shown as **Solo clase → archivo**, with an informational notice that `{module}` is absent from the
+file pattern. The inverse case is shown as **Solo archivo → clase**. Quick fixes are offered only for
+directions that can be calculated without guessing.
+
+## PHP declarations and namespaces
+
+The inspection runs once per recognized `PhpFile` and considers supported top-level class
+declarations. Declarations that do not satisfy an applicable class pattern are excluded.
+
+- one exact match makes the existing pair valid;
+- one candidate without an exact match gets compatible diagnostics and quick fixes;
+- several candidates without a match produce one ambiguous diagnostic and no automatic choice;
+- when named alternatives are enabled, each action identifies its declaration;
+- several exact matches are all accepted;
+- PHP files without candidate classes and non-PHP PSI files are ignored.
+
+A pattern without namespace syntax applies only to global legacy classes. A rule participates for a
+namespaced declaration only when the class pattern explicitly contains `\` or `sep(\)`:
+
+```text
+Class: {namespace:pascal|sep(\)}\{name:pascal}_Model
+File:  src/{namespace:lower|sep(/)}/{name:snake}.model.php
+```
+
+This is explicit mapping data; the plugin does not duplicate or infer PSR-4.
+
+## Built-in rule packs
+
+The bundled catalog materializes ordinary editable rules for:
+
+- PEAR / PSR-0;
+- Zend Framework 1 application resources;
+- Laravel 3 application directories;
+- CodeIgniter 2 application directories.
+
+Rule packs are creation-time bundles, not resolver modes. Apply a pack, then edit, reorder,
+duplicate, chain, or remove its flat rules. Project-specific conventions belong in custom rules.
 
 ## Configure mappings
 
 1. Open **Settings | Languages & Frameworks | Legacy Autoload Mapping**.
-2. Select **Add**.
-3. Choose a bundled preset or edit the class and file patterns directly.
-4. Select an existing project directory as the source root using the directory chooser.
-5. Give the mapping a recognizable name and apply the settings.
+2. Select or create a mapping scheme.
+3. Add a custom rule or use **Add from…** for a bundled rule pack.
+4. Select an existing base directory. The saved value is relative to the project directory; `.` or
+   an empty value represents the project directory itself.
+5. Review the displayed directional capability and any informational notice.
 
-Mappings are evaluated in list order; mappings with more specific source roots take precedence.
-They persist in `.idea/legacyAutoload.xml` as project settings.
-
-For the original ZF1/PSR-0 behavior, choose **PSR-0 / PEAR underscores to directories** and select a
-root such as:
-
-```text
-website/application/classes
-tests/unit
-```
-
-Create one mapping per source root.
-
-## Installation
-
-### JetBrains Marketplace
-
-Once the plugin is available on JetBrains Marketplace, open
-**Settings | Plugins | Marketplace**, search for **Legacy Autoload Mapping**, install it, and restart
-PhpStorm if requested.
-
-### GitHub release
-
-Download the plugin ZIP from the latest
-[GitHub release](https://github.com/NekoOs/phpstorm-legacy-autoload/releases/latest). In PhpStorm,
-open **Settings | Plugins**, choose **Install Plugin from Disk...** from the gear menu, select the ZIP,
-and restart the IDE if requested. Do not extract the archive.
+The special **Project** scheme and the selected scheme ID are stored in
+`.idea/legacyAutoload.xml`. **Default** and custom IDE schemes are stored in PhpStorm's application
+settings and can be reused by other projects because every base directory remains project-relative.
+Use **Copy to IDE…** or **Copy to Project…** to move a configuration between scopes. Only custom IDE
+schemes can be renamed or deleted. Exported `*.legacy-autoload.xml` files use a validated versioned
+interchange format. Because the plugin has not been published, the current storage and DSL do not
+include compatibility parsing for earlier experimental formats.
 
 ## Inspection and quick fixes
 
-The **Legacy autoload class/file mismatch** inspection validates top-level global PHP classes covered
-by a configured mapping. It ignores namespaced classes, interfaces, traits, enums, anonymous
-classes, PHP files without classes, and files outside mapped roots.
+Configure **Legacy autoload class/file mismatch** under
+**Settings | Editor | Inspections | PHP**. It provides refactoring-based actions to:
 
-The inspection participates in PhpStorm's normal severity, scope, highlighting, and Alt+Enter
-infrastructure. It provides:
+- rename a candidate class to the expected declared name;
+- move and, when needed, rename a PHP file to an expected mapped path.
 
-- **Rename class to expected legacy autoload name**, using PhpStorm's rename refactoring so code
-  references are updated safely;
-- **Move file to mapped autoload path** when the target is unambiguous, its directory exists, and no
-  file would be overwritten.
+Moves require an existing target directory and never overwrite another file. Ambiguous rules or
+declarations never select an action silently. The optional rule policy exposes named alternatives.
 
-Configure it under
-**Settings | Editor | Inspections | PHP | Legacy autoload class/file mismatch**.
-
-The plugin does not silently suppress or replace PhpStorm's official PSR-0/PSR-4 inspection. When
-legacy mappings are configured and the official inspection remains enabled, the settings page shows
-a warning with an action that opens the official inspection directly. If the project uses a
-project-level inspection profile, the warning also offers an explicit, confirmed action to disable
-the official inspection for that project. This is optional because the same project may still
-contain normal PSR-4 code that benefits from PhpStorm's inspection.
+The plugin does not suppress PhpStorm's PSR-0/PSR-4 inspection automatically. The settings page can
+open that inspection or explicitly disable it for a project-level profile.
 
 ## Architecture
 
 ```text
-mapping/
-  LegacyAutoloadMapping          declarative mapping value
-  LegacyAutoloadResolver         class ↔ relative-file resolution
-  SourceRoot                     normalized project-relative root
-  pattern/                       ClassPattern, FilePattern, template parser
-  transformation/                open registry and reusable transformations
-resolver/
-  ProjectLegacyAutoloadResolver  project/VFS coordination
-inspection/                      PHP PSI validation
-quickfix/                        refactoring-based fixes
-settings/                        persistent mapping state
-ui/                              mappings, presets, patterns, directory chooser
+mapping/value/                 captured structured values
+mapping/transformation/        case, separator, and restriction pipeline
+mapping/pattern/               bounded literal/token parsing
+mapping/                       capabilities and pure class/file resolution
+resolver/                      base-directory and alternative evaluation
+inspection/                    recognized PHP PSI and file-level diagnostics
+quickfix/                      refactoring-only mutations
+settings/                      persistent rules and scheme codec
+ui/                            schemes, rule packs, capabilities, and rule editor
 ```
 
-The core has no PHP PSI dependency. The project resolver handles VFS roots, the inspection handles
-PHP declarations, and quick fixes only handle refactoring. This keeps pattern parsing, autoload
-resolution, IDE integration, and mutation as separate responsibilities.
+The core resolver has no PHP PSI dependency. Pattern matching is bounded to 512 pattern characters,
+16 variables, and 10,000 guarded search steps. Compiled mappings are cached per project.
 
-## Build and run
+## Build and verify
 
-Requirements:
-
-- JDK 21 or newer; the Gradle toolchain resolver can provision JDK 21 automatically;
-- network access on the first build to resolve the PhpStorm SDK.
+Requirements are JDK 21 or newer and network access on the first build for the PhpStorm SDK.
 
 ```bash
 ./gradlew test
-./gradlew runIde
-```
-
-`runIde` launches an isolated PhpStorm development instance. Release checks:
-
-```bash
-./gradlew clean test verifyPluginProjectConfiguration verifyPluginStructure buildPlugin
+./gradlew verifyPluginProjectConfiguration verifyPluginStructure
+./gradlew buildPlugin
 ./gradlew verifyPlugin
 ```
 
-The installable ZIP is generated in `build/distributions/`. Install it through
-**Settings | Plugins | Install Plugin from Disk**.
-
-The plugin targets PhpStorm 2026.1 (IntelliJ build 261) and newer, uses the public PHP PSI API from
-`com.jetbrains.php`, and has no upper IDE build bound.
-
-It does not modify Composer configuration, convert legacy classes to namespaces, or globally
-suppress PhpStorm inspections.
+The installable ZIP is generated in `build/distributions/`. The plugin targets PhpStorm 2026.1
+(IntelliJ build 261) and newer and does not declare an upper IDE build bound.
