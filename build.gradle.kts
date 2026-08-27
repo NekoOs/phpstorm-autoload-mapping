@@ -7,8 +7,20 @@ plugins {
     id("org.jetbrains.intellij.platform") version "2.18.1"
 }
 
+val pluginVersionValue = providers.gradleProperty("pluginVersion").get()
+val platformSinceBuildValue = providers.gradleProperty("platformSinceBuild").get()
+val marketplaceVersionPattern = Regex("""\d{3}\.\d+\.\d+""")
+
+require(marketplaceVersionPattern.matches(pluginVersionValue)) {
+    "pluginVersion must use <JetBrains-platform-branch>.<feature>.<patch>"
+}
+require(pluginVersionValue.substringBefore('.') == platformSinceBuildValue.substringBefore('.')) {
+    "pluginVersion '$pluginVersionValue' must start with the platformSinceBuild branch " +
+        "'$platformSinceBuildValue'"
+}
+
 group = providers.gradleProperty("pluginGroup").get()
-version = providers.gradleProperty("pluginVersion").get()
+version = pluginVersionValue
 
 repositories {
     mavenCentral()
@@ -60,10 +72,10 @@ tasks {
 intellijPlatform {
     pluginConfiguration {
         name = providers.gradleProperty("pluginName")
-        version = providers.gradleProperty("pluginVersion")
+        version = pluginVersionValue
 
         ideaVersion {
-            sinceBuild = providers.gradleProperty("platformSinceBuild")
+            sinceBuild = platformSinceBuildValue
         }
     }
 

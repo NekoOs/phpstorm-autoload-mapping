@@ -1,0 +1,21 @@
+<html>
+<body>
+Reports recognized PHP files whose existing top-level class declarations and paths do not agree
+with a configured deterministic autoload mapping.
+<p>
+    A mapping combines a base directory relative to the project directory, a class pattern, and a file pattern. For
+    example, <code>{qualified:raw|sep(_)}</code> mapped to
+    <code>{qualified:raw|sep(/)}.php</code> implements the PSR-0/PEAR underscore convention.
+</p>
+<p>
+    Other mappings can express suffix-based files, case transformations, and fixed path literals,
+    such as <code>{class:pascal}_Model</code> mapped to <code>{class:kebab}.model.php</code>.
+</p>
+<!-- tooltip end -->
+<p>
+    Global rules apply to global classes. Namespaced declarations participate only when the class
+    pattern explicitly declares namespace structure. Files PhpStorm does not recognize as PHP and
+    PHP files without candidate declarations are ignored.
+</p>
+</body>
+</html>

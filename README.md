@@ -1,9 +1,10 @@
-# Legacy Autoload Mapping for PhpStorm
+# PHP Autoload Mapping for PhpStorm
 
-Legacy Autoload Mapping validates deterministic relationships between PHP declarations that already
-exist and files PhpStorm already recognizes as PHP. It is intended for applications that predate
-modern Composer/PSR-4 layouts. The plugin does not discover PHP in unknown file types, invent class
-declarations, change file-type associations, or infer undeclared framework conventions.
+PHP Autoload Mapping validates deterministic relationships between PHP declarations that already
+exist and files PhpStorm already recognizes as PHP. Rules can describe PSR, framework-specific,
+legacy, and project-specific class-to-file conventions. The plugin does not discover PHP in unknown
+file types, invent class declarations, change file-type associations, or infer undeclared framework
+conventions.
 
 PSR-0 is one bundled rule pack, not the plugin's data model.
 
@@ -136,7 +137,8 @@ Class: {namespace:pascal|sep(\)}\{name:pascal}_Model
 File:  src/{namespace:lower|sep(/)}/{name:snake}.model.php
 ```
 
-This is explicit mapping data; the plugin does not duplicate or infer PSR-4.
+This is explicit mapping data. Version 261.1.0 does not yet duplicate or infer PSR-4; future support
+can be added as ordinary mapping rules without changing the core model.
 
 ## Built-in rule packs
 
@@ -152,7 +154,7 @@ duplicate, chain, or remove its flat rules. Project-specific conventions belong 
 
 ## Configure mappings
 
-1. Open **Settings | Languages & Frameworks | Legacy Autoload Mapping**.
+1. Open **Settings | Languages & Frameworks | PHP Autoload Mapping**.
 2. Select or create a mapping scheme.
 3. Add a custom rule or use **Add from…** for a bundled rule pack.
 4. Select an existing base directory. The saved value is relative to the project directory; `.` or
@@ -160,16 +162,16 @@ duplicate, chain, or remove its flat rules. Project-specific conventions belong 
 5. Review the displayed directional capability and any informational notice.
 
 The special **Project** scheme and the selected scheme ID are stored in
-`.idea/legacyAutoload.xml`. **Default** and custom IDE schemes are stored in PhpStorm's application
+`.idea/autoloadMapping.xml`. **Default** and custom IDE schemes are stored in PhpStorm's application
 settings and can be reused by other projects because every base directory remains project-relative.
 Use **Copy to IDE…** or **Copy to Project…** to move a configuration between scopes. Only custom IDE
-schemes can be renamed or deleted. Exported `*.legacy-autoload.xml` files use a validated versioned
-interchange format. Because the plugin has not been published, the current storage and DSL do not
-include compatibility parsing for earlier experimental formats.
+schemes can be renamed or deleted. Exported `*.autoload-mapping.xml` files use a validated versioned
+interchange format. Experimental storage and DSL formats that predate the first Marketplace release
+are not supported.
 
 ## Inspection and quick fixes
 
-Configure **Legacy autoload class/file mismatch** under
+Configure **PHP autoload class/file mismatch** under
 **Settings | Editor | Inspections | PHP**. It provides refactoring-based actions to:
 
 - rename a candidate class to the expected declared name;
@@ -178,8 +180,10 @@ Configure **Legacy autoload class/file mismatch** under
 Moves require an existing target directory and never overwrite another file. Ambiguous rules or
 declarations never select an action silently. The optional rule policy exposes named alternatives.
 
-The plugin does not suppress PhpStorm's PSR-0/PSR-4 inspection automatically. The settings page can
-open that inspection or explicitly disable it for a project-level profile.
+The custom inspection is the primary consumer of the mapping model. Its quick fixes use PhpStorm's
+rename and move refactoring APIs as a secondary, safe repair mechanism. The compatibility adapter
+does not suppress PhpStorm's PSR-0/PSR-4 inspection automatically: the settings page can open that
+inspection or explicitly disable it for a project-level profile after confirmation.
 
 ## Architecture
 
@@ -209,5 +213,28 @@ Requirements are JDK 21 or newer and network access on the first build for the P
 ./gradlew verifyPlugin
 ```
 
-The installable ZIP is generated in `build/distributions/`. The plugin targets PhpStorm 2026.1
-(IntelliJ build 261) and newer and does not declare an upper IDE build bound.
+The installable ZIP is generated in `build/distributions/`.
+
+## Versioning and IDE compatibility
+
+Marketplace releases use `<jetbrains-platform-branch>.<feature>.<patch>`. The first segment comes
+from the leading numeric component of the actual JetBrains product build number documented in
+[Build Number Ranges](https://plugins.jetbrains.com/docs/intellij/build-number-ranges.html), not
+from an independently invented calendar version:
+
+- PhpStorm builds `PS-261...` use plugin versions `261.x.y`;
+- PhpStorm builds `PS-262...` use plugin versions `262.x.y`;
+- `261.1.0` is the first feature release built on the PhpStorm 2026.1 platform branch;
+- `261.1.1` is a compatible bug-fix release for the same IDE branch;
+- `261.2.0` adds compatible plugin functionality for the same IDE branch;
+- `262.1.0` starts a separate line only when the plugin raises `platformSinceBuild` to `262`.
+
+The build fails during configuration unless the first segment of `pluginVersion` matches the branch
+in `platformSinceBuild`. The actual IDE build metadata and JetBrains product release notes are the
+tie-breakers if a summary table is temporarily inconsistent.
+
+The plugin version communicates its baseline; `since-build` and `until-build` metadata determine
+which IDE can install it. The plugin is built against the oldest supported branch (`261`) and has no
+upper bound while forward compatibility is verified. Every new IDE branch must still pass Plugin
+Verifier and functional tests. If a real incompatibility requires separate artifacts, cap the older
+release at `261.*`, raise `platformSinceBuild` to `262`, and publish the new artifact as `262.x.y`.

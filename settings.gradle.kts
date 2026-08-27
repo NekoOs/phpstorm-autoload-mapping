@@ -1,4 +1,4 @@
-rootProject.name = "phpstorm-legacy-autoload"
+rootProject.name = "phpstorm-autoload-mapping"
 
 pluginManagement {
     repositories {

@@ -1,20 +1,22 @@
-<idea-plugin url="https://github.com/NekoOs/phpstorm-legacy-autoload">
-    <id>com.github.nekoos.legacyautoload</id>
-    <name>Legacy Autoload Mapping</name>
+<idea-plugin url="https://github.com/NekoOs/phpstorm-autoload-mapping">
+    <id>com.github.nekoos.php-autoload-mapping</id>
+    <name>PHP Autoload Mapping</name>
     <vendor url="https://github.com/NekoOs">NekoOS</vendor>
 
     <description><![CDATA[
-        <p><strong>Legacy Autoload Mapping</strong> teaches PhpStorm to validate PHP classes that use
-        deterministic legacy class-to-file conventions the IDE does not understand natively.</p>
-        <p>Choose a documented convention or application schema for ZF1, Laravel 3, CodeIgniter 2,
+        <p><strong>PHP Autoload Mapping</strong> validates existing PHP declarations against
+        deterministic class-to-file mappings that are not fully represented by PhpStorm's native inspection.</p>
+        <p>Choose a bundled convention or application schema for ZF1, Laravel 3, CodeIgniter 2,
         or PEAR/PSR-0; alternatively configure controlled declarative patterns
         with fixed literals, typed formats, independent alternatives, and explicit fallback chains.</p>
         <p>The plugin works only with existing declarations in files PhpStorm recognizes as PHP.
-        Global rules remain global; namespace mapping participates only when explicitly declared.</p>
+        Global rules remain global; namespace mapping participates only when explicitly declared.
+        When the native PSR path inspection overlaps, the plugin warns and offers an explicit,
+        project-profile-only action to disable it; it never changes inspection settings automatically.</p>
     ]]></description>
 
     <change-notes><![CDATA[
-        <h3>0.3.0</h3>
+        <h3>261.1.0</h3>
         <ul>
             <li>Add structured canonical values, case formats, explicit separators, and controlled restrictions.</li>
             <li>Expose pair validation and both derivation directions independently.</li>
@@ -34,22 +36,22 @@
     <depends>com.intellij.modules.platform</depends>
     <depends>com.jetbrains.php</depends>
 
-    <resource-bundle>messages.LegacyAutoloadBundle</resource-bundle>
+    <resource-bundle>messages.AutoloadMappingBundle</resource-bundle>
 
     <extensions defaultExtensionNs="com.intellij">
         <projectConfigurable
-                id="com.github.nekoos.legacyautoload.settings"
-                displayName="Legacy Autoload Mapping"
+                id="com.github.nekoos.php-autoload-mapping.settings"
+                displayName="PHP Autoload Mapping"
                 parentId="language"
-                instance="com.github.nekoos.legacyautoload.ui.LegacyAutoloadConfigurable"/>
+                instance="com.github.nekoos.autoloadmapping.ui.AutoloadMappingConfigurable"/>
 
         <localInspection
                 language="PHP"
-                shortName="LegacyAutoloadPathMismatch"
-                displayName="Legacy autoload class/file mismatch"
+                shortName="AutoloadMappingPathMismatch"
+                displayName="PHP autoload class/file mismatch"
                 groupName="PHP"
                 enabledByDefault="true"
                 level="WARNING"
-                implementationClass="com.github.nekoos.legacyautoload.inspection.LegacyAutoloadPathMismatchInspection"/>
+                implementationClass="com.github.nekoos.autoloadmapping.inspection.AutoloadMappingPathMismatchInspection"/>
     </extensions>
 </idea-plugin>

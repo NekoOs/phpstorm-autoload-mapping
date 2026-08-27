@@ -1,11 +1,15 @@
 # Changelog
 
-All notable changes to Legacy Autoload Mapping are documented in this file.
+All notable changes to PHP Autoload Mapping are documented in this file.
 
 ## [Unreleased]
 
+## [261.1.0] - 2026-08-27
+
 ### Changed
 
+- Established the public product identity as PHP Autoload Mapping, with the native PhpStorm
+  inspection treated as an optional compatibility integration rather than the plugin's identity.
 - Replaced flat string substitutions with canonical structured values that preserve path,
   underscore, hyphen, dot, and namespace component boundaries.
 - Reduced the DSL to `raw`, `lower`, `upper`, `pascal`, `camel`, `snake`, `kebab`, `dot`, explicit
@@ -22,15 +26,20 @@ All notable changes to Legacy Autoload Mapping are documented in this file.
 
 ### Added
 
+- Prepared the first public JetBrains Marketplace release, built against PhpStorm 2026.1.
 - Ambiguous multi-class diagnostics with no automatic selection and optional quick fixes named by
   declaration.
 - Coverage for canonical case inversion, structural separators, literals, partial capabilities,
   real adjacent-token ambiguity, namespaces, multiple declarations, non-PHP files, alternatives,
   fallback rules, and nested roots.
 
-## [0.3.0] - 2026-08-24
+### Internal development milestones
 
-### Changed
+The following milestones were pre-Marketplace snapshots, not published plugin versions.
+
+#### Rule and scheme foundation
+
+##### Changed
 
 - Limited built-in rule packs to documented conventions and complete application schemas rather
   than illustrative transformations: PEAR/PSR-0, ZF1, Laravel 3, and CodeIgniter 2.
@@ -45,7 +54,7 @@ All notable changes to Legacy Autoload Mapping are documented in this file.
 - Restored a compact rule form by moving the long ambiguous-quick-fix option out of the shared label
   column.
 
-### Added
+##### Added
 
 - Controlled canonical case formats, explicit structural separators, fixed lengths, non-empty
   restrictions, and canonical reverse transformations.
@@ -68,28 +77,28 @@ All notable changes to Legacy Autoload Mapping are documented in this file.
   declaration names from files.
 - Explicit `pascal|sep(_)` and `lower|sep(/)` composition for Laravel-style structural segments.
 
-### Performance
+##### Performance
 
 - Compiled mappings are cached per project and rebuilt only when project or selected IDE scheme settings change.
 - Resolution filters by configured base directories and uses direct VFS paths without adding a custom
   PhpStorm index or scanning the project.
 
-## [0.2.1] - 2026-08-24
+#### Inspection compatibility
 
-### Added
+##### Added
 
 - A settings warning when PhpStorm's built-in PSR-0/PSR-4 inspection may report classes covered by
   configured legacy mappings.
 - Direct navigation to the official inspection and an explicitly confirmed project-profile action
   to disable it safely.
 
-### Changed
+##### Changed
 
 - Improved alignment and spacing in the project settings UI.
 
-## [0.2.0] - 2026-08-24
+#### Initial mapping prototype
 
-### Added
+##### Added
 
 - Declarative, bidirectional legacy autoload class/file mappings.
 - Integrated PSR-0/PEAR, model suffix, controller suffix, fixed prefix, and case transformation
@@ -98,7 +107,5 @@ All notable changes to Legacy Autoload Mapping are documented in this file.
 - PHP path mismatch inspection and refactoring-based rename/move quick fixes.
 - Automated mapping, settings, inspection, and compatibility tests.
 
-[0.2.1]: https://github.com/NekoOs/phpstorm-legacy-autoload/compare/v0.2.0...v0.2.1
-[0.2.0]: https://github.com/NekoOs/phpstorm-legacy-autoload/releases/tag/v0.2.0
-[0.3.0]: https://github.com/NekoOs/phpstorm-legacy-autoload/compare/v0.2.1...v0.3.0
-[Unreleased]: https://github.com/NekoOs/phpstorm-legacy-autoload/compare/v0.3.0...HEAD
+[261.1.0]: https://github.com/NekoOs/phpstorm-autoload-mapping/tree/v261.1.0
+[Unreleased]: https://github.com/NekoOs/phpstorm-autoload-mapping/compare/v261.1.0...HEAD
