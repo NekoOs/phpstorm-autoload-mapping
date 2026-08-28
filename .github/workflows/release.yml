@@ -138,7 +138,11 @@ jobs:
             echo "Signed distribution was not generated at ${signed_archive}." >&2
             exit 1
           fi
-          sha256sum "$signed_archive" > build/distributions/SHA256SUMS
+          archive_name="$(basename "$signed_archive")"
+          (
+            cd build/distributions
+            sha256sum "$archive_name" > SHA256SUMS
+          )
 
       - name: Upload signed distribution
         uses: actions/upload-artifact@v7
