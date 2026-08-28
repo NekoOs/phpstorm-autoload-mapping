@@ -1,0 +1,159 @@
+name: Prepare or publish Marketplace release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Signed release tag, for example v261.1.0
+        required: true
+        type: string
+      publish:
+        description: Publish to JetBrains Marketplace after the first manual upload
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: marketplace-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Validate, sign, and optionally publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Validate signed tag on GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]{3}\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Tag must use v<JetBrains-branch>.<feature>.<patch>." >&2
+            exit 1
+          fi
+
+          tag_object="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" --jq '.object')"
+          object_type="$(jq -r '.type' <<<"$tag_object")"
+          object_sha="$(jq -r '.sha' <<<"$tag_object")"
+          if [[ "$object_type" != "tag" ]]; then
+            echo "Release tag must be an annotated, signed tag." >&2
+            exit 1
+          fi
+
+          verification="$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${object_sha}" --jq '.verification.verified')"
+          if [[ "$verification" != "true" ]]; then
+            echo "GitHub did not verify the release tag signature." >&2
+            exit 1
+          fi
+
+      - name: Fetch tagged sources
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: zulu
+          java-version: 21
+
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@v6
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Match tag to project version
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          project_version="$(./gradlew properties --property version --quiet --console=plain | tail -n 1 | cut -d ' ' -f 2-)"
+          if [[ "$RELEASE_TAG" != "v${project_version}" ]]; then
+            echo "Tag ${RELEASE_TAG} does not match project version v${project_version}." >&2
+            exit 1
+          fi
+
+      - name: Require signing and publishing secrets
+        env:
+          CERTIFICATE_CHAIN: ${{ secrets.CERTIFICATE_CHAIN }}
+          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+          PRIVATE_KEY_PASSWORD: ${{ secrets.PRIVATE_KEY_PASSWORD }}
+          PUBLISH_TOKEN: ${{ secrets.PUBLISH_TOKEN }}
+          PUBLISH_REQUESTED: ${{ inputs.publish }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for secret_name in CERTIFICATE_CHAIN PRIVATE_KEY PRIVATE_KEY_PASSWORD; do
+            if [[ -z "${!secret_name}" ]]; then
+              echo "Missing repository secret: ${secret_name}." >&2
+              exit 1
+            fi
+          done
+          if [[ "$PUBLISH_REQUESTED" == "true" && -z "$PUBLISH_TOKEN" ]]; then
+            echo "Missing repository secret: PUBLISH_TOKEN." >&2
+            exit 1
+          fi
+
+      - name: Test, build, and verify plugin
+        run: >-
+          ./gradlew clean test verifyPluginProjectConfiguration
+          verifyPluginStructure buildPlugin verifyPlugin --stacktrace
+
+      - name: Prepare certificate chain file
+        env:
+          CERTIFICATE_CHAIN: ${{ secrets.CERTIFICATE_CHAIN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          certificate_file="${RUNNER_TEMP}/plugin-signing-certificate-chain.pem"
+          printf '%s\n' "$CERTIFICATE_CHAIN" > "$certificate_file"
+          chmod 600 "$certificate_file"
+          echo "CERTIFICATE_CHAIN_FILE=${certificate_file}" >> "$GITHUB_ENV"
+
+      - name: Sign and verify distribution
+        env:
+          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+          PRIVATE_KEY_PASSWORD: ${{ secrets.PRIVATE_KEY_PASSWORD }}
+        run: ./gradlew signPlugin verifyPluginSignature --stacktrace
+
+      - name: Record signed distribution checksum
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          signed_archive="build/distributions/phpstorm-autoload-mapping-${version}-signed.zip"
+          if [[ ! -s "$signed_archive" ]]; then
+            echo "Signed distribution was not generated at ${signed_archive}." >&2
+            exit 1
+          fi
+          sha256sum "$signed_archive" > build/distributions/SHA256SUMS
+
+      - name: Upload signed distribution
+        uses: actions/upload-artifact@v7
+        with:
+          name: phpstorm-autoload-mapping-${{ inputs.tag }}-signed
+          path: |
+            build/distributions/*-signed.zip
+            build/distributions/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish plugin to JetBrains Marketplace
+        if: ${{ inputs.publish }}
+        env:
+          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+          PRIVATE_KEY_PASSWORD: ${{ secrets.PRIVATE_KEY_PASSWORD }}
+          PUBLISH_TOKEN: ${{ secrets.PUBLISH_TOKEN }}
+        run: ./gradlew publishPlugin --stacktrace

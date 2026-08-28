@@ -215,6 +215,30 @@ Requirements are JDK 21 or newer and network access on the first build for the P
 
 The installable ZIP is generated in `build/distributions/`.
 
+### GitHub automation
+
+The `Build and verify` workflow runs on every push to `main`, every pull request, and manual
+dispatch. It uses Java 21, validates the Gradle wrapper, runs all tests and IntelliJ Platform
+configuration/structure checks, builds the ZIP, runs Plugin Verifier against the recommended IDEs,
+records a SHA-256 checksum, and uploads the distribution and reports as GitHub Actions artifacts.
+
+Marketplace releases are deliberately manual. The `Prepare or publish Marketplace release`
+workflow accepts only a signed annotated tag named `v<branch>.<feature>.<patch>`, requires GitHub to
+verify that signature, checks that the tag matches `pluginVersion`, repeats the complete validation,
+signs the plugin ZIP, verifies its certificate signature, and uploads only the signed distribution.
+It publishes to Marketplace only when the `publish` input is explicitly enabled.
+
+Configure these GitHub Actions repository secrets before preparing a signed release:
+
+- `CERTIFICATE_CHAIN` (PEM certificate chain contents)
+- `PRIVATE_KEY` (PEM private key contents)
+- `PRIVATE_KEY_PASSWORD`
+- `PUBLISH_TOKEN` (required only when `publish` is enabled)
+
+For the first Marketplace version, leave `publish` disabled, download the signed workflow artifact,
+and upload it manually for JetBrains review. Enable automated publishing only for a later version
+after the Marketplace listing exists and its numeric Marketplace ID has been assigned.
+
 ## Versioning and IDE compatibility
 
 Marketplace releases use `<jetbrains-platform-branch>.<feature>.<patch>`. The first segment comes

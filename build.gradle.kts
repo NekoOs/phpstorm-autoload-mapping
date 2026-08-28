@@ -1,6 +1,7 @@
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
 import org.jetbrains.intellij.platform.gradle.tasks.BuildSearchableOptionsTask
 import org.jetbrains.intellij.platform.gradle.tasks.PrepareSandboxTask
+import java.io.File
 
 plugins {
     java
@@ -35,6 +36,7 @@ dependencies {
         bundledPlugin("com.jetbrains.php")
         testFramework(TestFrameworkType.Platform)
         pluginVerifier()
+        zipSigner()
     }
 
     testImplementation("junit:junit:4.13.2")
@@ -67,6 +69,10 @@ tasks {
         sandboxSystemDirectory.set(layout.buildDirectory.dir("searchableOptions-sandbox/system"))
         sandboxLogDirectory.set(layout.buildDirectory.dir("searchableOptions-sandbox/log"))
     }
+
+    named("verifyPluginSignature") {
+        dependsOn("signPlugin")
+    }
 }
 
 intellijPlatform {
@@ -77,6 +83,14 @@ intellijPlatform {
         ideaVersion {
             sinceBuild = platformSinceBuildValue
         }
+    }
+
+    signing {
+        certificateChainFile.set(
+            layout.file(
+                providers.environmentVariable("CERTIFICATE_CHAIN_FILE").map { File(it) },
+            ),
+        )
     }
 
     pluginVerification {
