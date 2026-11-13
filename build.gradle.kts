@@ -5,7 +5,7 @@ import java.io.File
 
 plugins {
     java
-    id("org.jetbrains.intellij.platform") version "2.18.1"
+    id("org.jetbrains.intellij.platform") version "2.20.1"
 }
 
 val pluginVersionValue = providers.gradleProperty("pluginVersion").get()
